@@ -6,8 +6,9 @@ app. Read this first. Human-facing docs live in `README.md`; the original design
 truth). Verify recipes: `.claude/skills/verify/SKILL.md`.
 
 **What it is:** a self-hosted web app that downloads media from YouTube, Vimeo, SoundCloud,
-and Spotify. Python FastAPI + yt-dlp (Python API, never the CLI) + ffmpeg + Deno, one
-Docker container, vanilla-JS frontend (no build step). Deployed on Railway.
+Spotify, Deezer, JOOX, TIDAL, and Apple Music. Python FastAPI + yt-dlp (Python API, never
+the CLI) + custom audio clients + ffmpeg + Deno, one Docker container, vanilla-JS frontend
+(no build step). Deployed on Railway.
 
 ## ⚠️ Secrets & repo hygiene (this repo is PUBLIC)
 
@@ -61,6 +62,11 @@ Browser (static/*, vanilla JS)
 | `server/main.py` | FastAPI app, routes, auth middleware, rate limit, job orchestration, TTL cleanup, static mount, `X-Robots-Tag` header | `_access_key_middleware`, `_rate_limited`, `_run_job`, `_cleanup_loop`, `api_health/probe/download/job/file` |
 | `server/downloader.py` | yt-dlp option builders, `probe()`, `run_download()`, cookie resolution + **self-renewal**, `friendly_error()`; dispatches SoundCloud to `soundcloud.py` | `_resolve_cookies`, `_cookies_copy`, `build_ydl_opts`, `_video_options`, `_FORMAT_SPECS` |
 | `server/soundcloud.py` | SoundCloud API client: progressive / concurrent HLS / Widevine CENC DRM decrypt | `probe`, `run_download`, `_pick_stream`, `_decrypt_fragment`, `_widevine_content_key` |
+| `server/deezer.py` | Deezer Blowfish CDN download | `probe`, `run_download` |
+| `server/joox.py` | JOOX direct stream URLs | `probe`, `run_download` |
+| `server/tidal.py` | TIDAL streams (AES-CTR when encrypted); needs `TIDAL_ACCESS_TOKEN` | `probe`, `run_download` |
+| `server/applemusic.py` | Apple Music AAC via webplayback + Widevine; needs `APPLE_MEDIA_USER_TOKEN` | `probe`, `run_download` |
+| `server/audio_common.py` | Shared audio probe options, ffmpeg finalize, tagging | `finalize_audio`, `probe_payload` |
 | `server/jobs.py` | `Job` dataclass + thread-safe `JobStore` | `JobStore.update/get/prune` |
 | `server/platforms.py` | URL → platform detection + playlist-shape rejection | `detect_platform`, `platform_kind`, `looks_like_playlist` |
 | `server/spotify.py` | Spotify link → public metadata → `ytsearch1:` query (spotDL approach; no DRM) | `resolve_track`, `SpotifyError` |
@@ -127,8 +133,9 @@ done. Then update the guidance here if the path changed.
 Full table with meanings is in `README.md`. Quick list read by the code:
 `PORT`, `ACCESS_KEY`, `DOWNLOAD_DIR`, `FILE_TTL_MINUTES`, `MAX_CONCURRENT_JOBS`,
 `MAX_ACTIVE_JOBS`, `RATE_LIMIT_PER_MINUTE`, `ALLOW_ANY_SITE`, `COOKIES_FILE`, `COOKIES_B64`,
-`COOKIES_CONTENT`, `COOKIES_STATE_FILE`, `WIDEVINE_DEVICE_FILE`, `WIDEVINE_DEVICE_B64`.
-(`SPOTIFY_CLIENT_ID/SECRET` are reserved, unused.)
+`COOKIES_CONTENT`, `COOKIES_STATE_FILE`, `WIDEVINE_DEVICE_FILE`, `WIDEVINE_DEVICE_B64`,
+`TIDAL_ACCESS_TOKEN`, `TIDAL_REFRESH_TOKEN`, `TIDAL_COUNTRY_CODE`, `APPLE_MEDIA_USER_TOKEN`,
+`JOOX_COOKIE`. (`SPOTIFY_CLIENT_ID/SECRET` are reserved, unused.)
 When you add a new one, update: `README.md` table, `.env.example`, and this list.
 
 ## Local dev, run & verify

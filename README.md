@@ -1,6 +1,6 @@
 # ytdl4me
 
-Self-hosted web app for downloading media from **YouTube, Vimeo, SoundCloud, and Spotify** — built as a study of modern media pipelines: stream selection, lossless remuxing, and metadata handling. One Docker container: FastAPI + [yt-dlp](https://github.com/yt-dlp/yt-dlp) + ffmpeg behind a clean, no-build-step web UI.
+Self-hosted web app for downloading media from **YouTube, Vimeo, SoundCloud, Spotify, Deezer, JOOX, TIDAL, and Apple Music** — built as a study of modern media pipelines: stream selection, lossless remuxing, and metadata handling. One Docker container: FastAPI + [yt-dlp](https://github.com/yt-dlp/yt-dlp) + ffmpeg behind a clean, no-build-step web UI.
 
 > [!WARNING]
 > **FOR RESEARCH AND EDUCATIONAL PURPOSES ONLY.**
@@ -108,8 +108,14 @@ All variables are optional. See [.env.example](.env.example).
 | `COOKIES_B64` | unset | Base64 of a `cookies.txt` — use this instead of `COOKIES_FILE` on hosts where you can't mount a file (Railway, Fly) |
 | `COOKIES_CONTENT` | unset | Raw `cookies.txt` contents (alternative to `COOKIES_B64`) |
 | `COOKIES_STATE_FILE` | unset | Path on a **persistent volume**. Seeded once from the cookie vars above, then yt-dlp's rotated cookies are written back after every run so the YouTube session self-renews instead of going stale. Needs a real volume (e.g. a Railway volume at `/state`). |
-| `WIDEVINE_DEVICE_FILE` | unset | Path to a pywidevine `.wvd` used for SoundCloud DRM tracks. Optional — if unset, a public L3 device is cached on first DRM download. |
+| `WIDEVINE_DEVICE_FILE` | unset | Path to a pywidevine `.wvd` used for SoundCloud / Apple Music DRM. Optional — if unset, a public L3 device is cached on first DRM download. |
 | `WIDEVINE_DEVICE_B64` | unset | Base64 of a `.wvd` (alternative to `WIDEVINE_DEVICE_FILE` for hosts that only support env vars). |
+| `TIDAL_ACCESS_TOKEN` | unset | Bearer token for TIDAL streams (required for TIDAL downloads). |
+| `TIDAL_REFRESH_TOKEN` | unset | Optional refresh token for TIDAL. |
+| `TIDAL_COUNTRY_CODE` | `US` | TIDAL catalog country. |
+| `APPLE_MEDIA_USER_TOKEN` | unset | `media-user-token` cookie from music.apple.com (required for full Apple Music tracks; needs an active subscription). |
+| `JOOX_COOKIE` | guest default | Optional JOOX session cookie override for regional catalogs. |
+| `DEEZER_ARL` | unset | Deezer `arl` cookie for full-length streams (without it only official ~30s previews). |
 
 ## Sharing it (unlisted)
 

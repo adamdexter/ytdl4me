@@ -63,6 +63,10 @@
     vimeo: { name: "Vimeo", icon: "icon-vimeo" },
     soundcloud: { name: "SoundCloud", icon: "icon-soundcloud" },
     spotify: { name: "Spotify", icon: "icon-spotify" },
+    deezer: { name: "Deezer", icon: "icon-deezer" },
+    joox: { name: "JOOX", icon: "icon-joox" },
+    tidal: { name: "TIDAL", icon: "icon-tidal" },
+    applemusic: { name: "Apple Music", icon: "icon-applemusic" },
   };
 
   const PLATFORM_HOSTS = {
@@ -76,6 +80,16 @@
     "snd.sc": "soundcloud",
     "open.spotify.com": "spotify",
     "spotify.link": "spotify",
+    "deezer.com": "deezer",
+    "deezer.page.link": "deezer",
+    "joox.com": "joox",
+    "tidal.com": "tidal",
+    "listen.tidal.com": "tidal",
+    "embed.tidal.com": "tidal",
+    "music.apple.com": "applemusic",
+    "geo.music.apple.com": "applemusic",
+    "embed.music.apple.com": "applemusic",
+    "itunes.apple.com": "applemusic",
   };
 
   function detectPlatform(raw) {
@@ -86,9 +100,18 @@
       return null;
     }
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    // Mirror the backend: strip "www." then "m." (handles www.m.youtube.com).
-    const host = url.hostname.toLowerCase().replace(/^www\./, "").replace(/^m\./, "");
-    return PLATFORM_HOSTS[host] || "other";
+    // Mirror the backend: strip common subdomains.
+    let host = url.hostname.toLowerCase()
+      .replace(/^(www|m|listen|open|play|geo|embed)\./, "");
+    // second strip for www.m.* style
+    host = host.replace(/^(www|m)\./, "");
+    if (PLATFORM_HOSTS[host]) return PLATFORM_HOSTS[host];
+    if (host.endsWith(".deezer.com")) return "deezer";
+    if (host.endsWith(".joox.com")) return "joox";
+    if (host.endsWith(".tidal.com")) return "tidal";
+    if (host.endsWith(".soundcloud.com")) return "soundcloud";
+    if (host.includes("music.apple.") || host === "apple.com") return "applemusic";
+    return "other";
   }
 
   // ------------------------------------------------- access key + 401 modal

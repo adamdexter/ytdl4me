@@ -261,13 +261,21 @@ def _probe_opts() -> dict:
 
 def probe(url: str, platform: str) -> dict:
     """Blocking metadata probe (call via asyncio.to_thread)."""
-    # SoundCloud: custom client handles progressive + Widevine DRM tracks that
-    # yt-dlp refuses (ctr-/cbc-encrypted-hls).
-    if platform == "soundcloud":
-        from . import soundcloud as sc
+    # Custom clients for services yt-dlp can't (or shouldn't) handle alone.
+    _CUSTOM = {
+        "soundcloud": ("soundcloud", "SoundCloudError"),
+        "deezer": ("deezer", "DeezerError"),
+        "joox": ("joox", "JooxError"),
+        "tidal": ("tidal", "TidalError"),
+        "applemusic": ("applemusic", "AppleMusicError"),
+    }
+    if platform in _CUSTOM:
+        mod_name, _err_name = _CUSTOM[platform]
+        import importlib
+        mod = importlib.import_module(f".{mod_name}", __package__)
         try:
-            return sc.probe(url)
-        except sc.SoundCloudError as exc:
+            return mod.probe(url)
+        except Exception as exc:
             raise ProbeError(str(exc)) from exc
 
     info = _extract(url)
@@ -496,11 +504,19 @@ def run_download(
     platform: str | None = None,
 ) -> None:
     """Blocking download (call via asyncio.to_thread). Raises on failure."""
-    if platform == "soundcloud":
-        from . import soundcloud as sc
+    _CUSTOM = {
+        "soundcloud": "soundcloud",
+        "deezer": "deezer",
+        "joox": "joox",
+        "tidal": "tidal",
+        "applemusic": "applemusic",
+    }
+    if platform in _CUSTOM:
+        import importlib
+        mod = importlib.import_module(f".{_CUSTOM[platform]}", __package__)
         try:
-            sc.run_download(store, job_id, url, option_id, job_dir, filename_stem)
-        except sc.SoundCloudError as exc:
+            mod.run_download(store, job_id, url, option_id, job_dir, filename_stem)
+        except Exception as exc:
             raise DownloadFailed(str(exc)) from exc
         return
 

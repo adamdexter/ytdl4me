@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
   <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
-  <meta name="description" content="Download video and audio from YouTube, Vimeo, SoundCloud, and Spotify — self-hosted, for personal and research use.">
+  <meta name="description" content="Download video and audio from YouTube, Vimeo, SoundCloud, Spotify, Deezer, JOOX, TIDAL, and Apple Music — self-hosted, for personal and research use.">
   <title>ytdl4me</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23617dff' d='M12 2a1.3 1.3 0 0 1 1.3 1.3v8.06l2.78-2.78a1.3 1.3 0 1 1 1.84 1.84l-5 5a1.3 1.3 0 0 1-1.84 0l-5-5a1.3 1.3 0 1 1 1.84-1.84l2.78 2.78V3.3A1.3 1.3 0 0 1 12 2Zm-8 14.7A1.3 1.3 0 0 1 5.3 18v1.4h13.4V18a1.3 1.3 0 1 1 2.6 0v2.7A1.3 1.3 0 0 1 20 22H4a1.3 1.3 0 0 1-1.3-1.3V18A1.3 1.3 0 0 1 4 16.7Z'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/app.css">
@@ -35,6 +35,29 @@
     <symbol id="icon-spotify" viewBox="0 0 24 24">
       <path fill="#1DB954" d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.08 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z"/>
     </symbol>
+    <symbol id="icon-deezer" viewBox="0 0 24 24">
+      <g fill="#A238FF">
+        <rect x="1" y="14" width="2.2" height="5" rx="0.4"/>
+        <rect x="4.2" y="11" width="2.2" height="8" rx="0.4"/>
+        <rect x="7.4" y="8" width="2.2" height="11" rx="0.4"/>
+        <rect x="10.6" y="10" width="2.2" height="9" rx="0.4"/>
+        <rect x="13.8" y="7" width="2.2" height="12" rx="0.4"/>
+        <rect x="17" y="12" width="2.2" height="7" rx="0.4"/>
+        <rect x="20.2" y="9" width="2.2" height="10" rx="0.4"/>
+      </g>
+    </symbol>
+    <symbol id="icon-joox" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="11" fill="#00D15A"/>
+      <path fill="#fff" d="M8 8.5h2.2v5.2c0 1.7 1 2.8 2.7 2.8 1.6 0 2.6-1 2.6-2.6V8.5H18v5.3c0 3-1.8 4.7-4.9 4.7-3.2 0-5.1-1.8-5.1-4.9V8.5z"/>
+    </symbol>
+    <symbol id="icon-tidal" viewBox="0 0 24 24">
+      <g fill="#000">
+        <path d="M2.3 7.6 5.1 4.8l2.8 2.8-2.8 2.8zm6.6 0 2.8-2.8 2.8 2.8-2.8 2.8zm6.6 0 2.8-2.8 2.8 2.8-2.8 2.8zM8.9 14.2l2.8-2.8 2.8 2.8-2.8 2.8z"/>
+      </g>
+    </symbol>
+    <symbol id="icon-applemusic" viewBox="0 0 24 24">
+      <path fill="#FA243C" d="M20 2.5c-.4-.1-4.3-1-8.2.9-2.2 1-3.6 2.5-4.3 3.6v11.2c-.7-.5-1.9-1-3.3-.8-2.2.4-3.6 2.2-3.2 4 .4 1.8 2.4 2.9 4.6 2.5 1.9-.3 3.2-1.7 3.4-3.3V9.4c1.1-.7 3.4-1.6 6.1-1.1v5.9c-.7-.4-1.8-.8-3.1-.6-2.2.4-3.6 2.2-3.2 4 .4 1.8 2.4 2.9 4.6 2.5 1.9-.3 3.3-1.8 3.4-3.4V2.5z"/>
+    </symbol>
     <symbol id="icon-video" viewBox="0 0 24 24">
       <path fill="currentColor" d="M4 5h10a2 2 0 0 1 2 2v1.6l3.55-2.07A1 1 0 0 1 21 7.4v9.2a1 1 0 0 1-1.45.87L16 15.4V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/>
     </symbol>
@@ -49,12 +72,12 @@
         <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#icon-logo"></use></svg></span>
         <h1>ytdl4me</h1>
       </div>
-      <p class="tagline">Grab video &amp; audio from YouTube, Vimeo, SoundCloud, and Spotify — straight from your own server.</p>
+      <p class="tagline">Grab video &amp; audio from YouTube, Vimeo, SoundCloud, Spotify, Deezer, JOOX, TIDAL, and Apple Music — straight from your own server.</p>
 
       <form id="fetch-form" class="inputbar" autocomplete="off">
         <span id="platform-badge" class="badge" hidden></span>
         <input id="url-input" name="url" type="text" inputmode="url" enterkeyhint="go"
-               placeholder="Paste a link — YouTube, Vimeo, SoundCloud, Spotify"
+               placeholder="Paste a link — YouTube, SoundCloud, Spotify, Deezer, TIDAL…"
                spellcheck="false" autocapitalize="off" aria-label="Media URL">
         <button id="fetch-btn" class="btn btn-primary" type="submit">
           <span class="spinner" aria-hidden="true"></span>
