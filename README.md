@@ -43,7 +43,7 @@ This project exists **solely for research and educational purposes**: studying h
 - **MP3 tiers.** 320 / 256 / 192 / 128 kbps CBR via LAME, with metadata and cover art embedded — for players that need MP3.
 - **Fast SoundCloud downloads (including DRM tracks).** Progressive HTTP is preferred when available; otherwise segments are fetched concurrently. Label/Go tracks that only offer Widevine `ctr-encrypted-hls` are unlocked via a short license step + CENC decrypt (same class of pipeline as online SC converters), so a ~4-minute track typically finishes in a few seconds at full quality instead of failing or crawling at realtime.
 - **No paid account required for Deezer / TIDAL / Apple Music / Spotify / Beatport.** Public metadata is read from each storefront, then we try a **SoundCloud match with progressive/Widevine decrypt** (often clean AAC ~160 kbps at network speed). If no confident SC hit exists, we fall back to a **YouTube match**. Beatport only exposes free LOFI previews without a Streaming plan; full masters use the same SC/YT cascade. Optional native tokens still unlock first-party streams when you set them.
-- **Spotify, explained honestly.** Spotify streams are DRM-protected and cannot be ripped directly. Like spotDL, ytdl4me reads the track's *public metadata* (artist, title, artwork), finds the best matching audio on YouTube, and downloads that. Quality depends on the match; single tracks only in v1.
+- **Spotify, explained honestly.** Spotify streams are DRM-protected and cannot be ripped directly. Like spotDL, ytdl4me reads the track's *public metadata* (artist, title, artwork), finds the best matching audio on YouTube (or SoundCloud when a confident match exists), and downloads that. Quality depends on the match. Playlists and albums are supported (track list + ZIP); reliable Spotify listing works best with free Web API client credentials (see env table).
 - **Live progress.** Per-job progress with speed and ETA; the file auto-downloads in your browser when ready.
 - **Unlisted sharing.** Set `ACCESS_KEY` and share a link with the token in its fragment — friends click and go, the bare URL stays gated, and the tool is kept out of search engines and AI crawlers. See [Sharing it (unlisted)](#sharing-it-unlisted).
 - **Self-renewing cookies.** With a persistent volume, yt-dlp's rotated YouTube session is written back after every run, so cookies you provide keep renewing themselves instead of going stale. See [`COOKIES_STATE_FILE`](#configuration).
@@ -104,7 +104,8 @@ All variables are optional. See [.env.example](.env.example).
 | `MAX_ACTIVE_JOBS` | `MAX_CONCURRENT_JOBS × 4` | Cap on non-terminal jobs before `/api/download` returns 429 (flood guard) |
 | `RATE_LIMIT_PER_MINUTE` | `30` | Per-IP sliding-window limit on `/api/probe` and `/api/download`; `0` disables |
 | `ALLOW_ANY_SITE` | `false` | If `false`, only the four supported platforms are accepted |
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | unset | Reserved for future album/playlist enumeration; unused in v1 |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | unset | Spotify Web API client credentials (Client Credentials flow). Optional for single tracks; **recommended for playlist/album track lists**. Create a free app at developer.spotify.com |
+| `MAX_PLAYLIST_TRACKS` | `100` | Cap on tracks returned/downloaded from a playlist, album, or set |
 | `COOKIES_FILE` | unset | Path to a Netscape-format `cookies.txt` passed to yt-dlp (see troubleshooting) |
 | `COOKIES_B64` | unset | Base64 of a `cookies.txt` — use this instead of `COOKIES_FILE` on hosts where you can't mount a file (Railway, Fly) |
 | `COOKIES_CONTENT` | unset | Raw `cookies.txt` contents (alternative to `COOKIES_B64`) |

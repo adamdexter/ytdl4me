@@ -318,19 +318,7 @@
   let probeErrorEl = null;
 
   // -------------------------------------------------------- platform badge
-
-  function updateBadge() {
-    const platform = detectPlatform(urlInput.value);
-    const meta = platform && PLATFORMS[platform];
-    platformBadge.replaceChildren();
-    if (!meta) {
-      platformBadge.hidden = true;
-      return;
-    }
-    platformBadge.hidden = false;
-    platformBadge.appendChild(icon(meta.icon));
-    platformBadge.appendChild(el("span", "badge-name", meta.name));
-  }
+  // updateBadge is defined with playlist detection below (near renderProbe).
 
   // ------------------------------------------------------------ probe flow
 
@@ -364,12 +352,55 @@
     }
   }
 
+  function looksLikePlaylist(raw, platform) {
+    if (!platform) return false;
+    let path = "";
+    let query = "";
+    try {
+      const u = new URL(String(raw).trim());
+      path = (u.pathname || "").toLowerCase();
+      query = (u.search || "").toLowerCase();
+    } catch {
+      return false;
+    }
+    if (platform === "youtube") return path.startsWith("/playlist");
+    if (platform === "soundcloud") return path.includes("/sets/");
+    if (platform === "spotify" || platform === "deezer" || platform === "joox" || platform === "tidal") {
+      return path.includes("/album/") || path.includes("/playlist/");
+    }
+    if (platform === "applemusic") {
+      if (path.includes("/playlist/")) return true;
+      if (path.includes("/album/") && !query.includes("i=") && !path.includes("/song/")) return true;
+      return false;
+    }
+    if (platform === "beatport") {
+      return ["/release/", "/chart/", "/playlist/"].some((p) => path.includes(p));
+    }
+    return false;
+  }
+
+  function updateBadge() {
+    const platform = detectPlatform(urlInput.value);
+    const meta = platform && PLATFORMS[platform];
+    platformBadge.replaceChildren();
+    if (!meta) {
+      platformBadge.hidden = true;
+      return;
+    }
+    platformBadge.hidden = false;
+    platformBadge.appendChild(icon(meta.icon));
+    platformBadge.appendChild(el("span", "badge-name", meta.name));
+    if (looksLikePlaylist(urlInput.value, platform)) {
+      platformBadge.appendChild(el("span", "badge-extra", "playlist"));
+    }
+  }
+
   function renderProbe(probe) {
     probeCard.replaceChildren();
 
     // Thumbnail / placeholder
     const media = el("div", "probe-media");
-    if (probe.kind === "audio") media.classList.add("audio");
+    if (probe.kind === "audio" || probe.kind === "playlist") media.classList.add("audio");
     if (probe.thumbnail) {
       const img = el("img");
       img.src = probe.thumbnail;
@@ -379,7 +410,10 @@
       media.appendChild(img);
     } else {
       media.appendChild(
-        icon(probe.kind === "audio" ? "icon-audio" : "icon-video", "icon media-icon")
+        icon(
+          probe.kind === "video" ? "icon-video" : "icon-audio",
+          "icon media-icon"
+        )
       );
     }
     probeCard.appendChild(media);
@@ -394,26 +428,51 @@
     } else {
       platformRow.appendChild(el("span", null, "Web"));
     }
+    if (probe.kind === "playlist") {
+      platformRow.appendChild(el("span", "chip chip-inline", "Playlist"));
+    }
     info.appendChild(platformRow);
     info.appendChild(el("h2", "probe-title", probe.title || "Untitled"));
     if (probe.uploader) info.appendChild(el("p", "probe-sub", probe.uploader));
 
     const chips = el("div", "probe-chips");
+    if (probe.kind === "playlist" && probe.track_count != null) {
+      chips.appendChild(el("span", "chip", `${probe.track_count} tracks`));
+    }
     const duration = fmtDuration(probe.duration);
     if (duration) chips.appendChild(el("span", "chip", duration));
     if (probe.original_quality) {
       chips.appendChild(el("span", "chip", probe.original_quality));
     }
+    if (probe.truncated) {
+      chips.appendChild(el("span", "chip", "list truncated"));
+    }
     if (chips.childElementCount) info.appendChild(chips);
     probeCard.appendChild(info);
 
+    // Playlist track picker
+    let playlistState = null;
+    if (probe.kind === "playlist" && Array.isArray(probe.entries)) {
+      playlistState = renderPlaylistPicker(probe);
+      probeCard.appendChild(playlistState.root);
+    }
+
     // Option groups
     const options = el("div", "probe-options");
-    if (probe.kind !== "audio" && probe.video_options && probe.video_options.length) {
-      options.appendChild(optionGroup(probe, "Video", "icon-video", probe.video_options));
+    const isPlaylist = probe.kind === "playlist";
+    const showVideo =
+      (probe.kind === "video" || (isPlaylist && probe.video_options && probe.video_options.length)) &&
+      probe.video_options &&
+      probe.video_options.length;
+    if (showVideo) {
+      options.appendChild(
+        optionGroup(probe, "Video", "icon-video", probe.video_options, playlistState)
+      );
     }
     if (probe.audio_options && probe.audio_options.length) {
-      options.appendChild(optionGroup(probe, "Audio", "icon-audio", probe.audio_options));
+      options.appendChild(
+        optionGroup(probe, "Audio", "icon-audio", probe.audio_options, playlistState)
+      );
     }
     probeErrorEl = el("p", "error-text");
     probeErrorEl.hidden = true;
@@ -424,7 +483,77 @@
     probeSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
-  function optionGroup(probe, label, iconId, opts) {
+  function renderPlaylistPicker(probe) {
+    const root = el("div", "playlist-picker");
+    const toolbar = el("div", "playlist-toolbar");
+    const selectAllBtn = el("button", "btn btn-ghost btn-sm");
+    selectAllBtn.type = "button";
+    selectAllBtn.textContent = "Select all";
+    const selectNoneBtn = el("button", "btn btn-ghost btn-sm");
+    selectNoneBtn.type = "button";
+    selectNoneBtn.textContent = "Select none";
+    const countEl = el("span", "playlist-count", "");
+    const zipLabel = el("label", "playlist-zip");
+    const zipToggle = el("input");
+    zipToggle.type = "checkbox";
+    zipToggle.checked = (probe.entries || []).length > 1;
+    zipLabel.appendChild(zipToggle);
+    zipLabel.appendChild(document.createTextNode(" Download as ZIP"));
+    toolbar.append(selectAllBtn, selectNoneBtn, countEl, zipLabel);
+    root.appendChild(toolbar);
+
+    const list = el("div", "track-list");
+    const checks = [];
+    for (const entry of probe.entries || []) {
+      const row = el("label", "track-row");
+      const cb = el("input");
+      cb.type = "checkbox";
+      cb.checked = true;
+      cb.dataset.url = entry.url || "";
+      checks.push(cb);
+      const idx = el("span", "track-idx", String(entry.index || ""));
+      const body = el("span", "track-body");
+      body.appendChild(el("span", "track-title", entry.title || "Untitled"));
+      if (entry.uploader) {
+        body.appendChild(el("span", "track-artist", entry.uploader));
+      }
+      const dur = el("span", "track-dur", fmtDuration(entry.duration) || "");
+      row.append(cb, idx, body, dur);
+      list.appendChild(row);
+    }
+    root.appendChild(list);
+
+    function selectedUrls() {
+      return checks.filter((c) => c.checked && c.dataset.url).map((c) => c.dataset.url);
+    }
+    function refreshCount() {
+      const n = selectedUrls().length;
+      countEl.textContent = `${n} selected`;
+      if (n <= 1) zipToggle.checked = false;
+      else if (!zipToggle.dataset.userTouched) zipToggle.checked = true;
+    }
+    zipToggle.addEventListener("change", () => {
+      zipToggle.dataset.userTouched = "1";
+    });
+    selectAllBtn.addEventListener("click", () => {
+      checks.forEach((c) => { c.checked = true; });
+      refreshCount();
+    });
+    selectNoneBtn.addEventListener("click", () => {
+      checks.forEach((c) => { c.checked = false; });
+      refreshCount();
+    });
+    checks.forEach((c) => c.addEventListener("change", refreshCount));
+    refreshCount();
+
+    return {
+      root,
+      selectedUrls,
+      wantZip: () => Boolean(zipToggle.checked),
+    };
+  }
+
+  function optionGroup(probe, label, iconId, opts, playlistState) {
     const group = el("div", "opt-group");
     const heading = el("div", "opt-group-label");
     heading.appendChild(icon(iconId));
@@ -432,19 +561,22 @@
     group.appendChild(heading);
 
     const grid = el("div", "opt-grid");
-    for (const opt of opts) grid.appendChild(optionButton(probe, opt));
+    for (const opt of opts) grid.appendChild(optionButton(probe, opt, playlistState));
     group.appendChild(grid);
     return group;
   }
 
-  function optionButton(probe, opt) {
+  function optionButton(probe, opt, playlistState) {
     const btn = el("button", "option");
     btn.type = "button";
     btn.appendChild(el("span", "option-label", opt.label));
     if (opt.detail) btn.appendChild(el("span", "option-detail", opt.detail));
     const size = fmtSize(opt.approx_size);
     if (size) btn.appendChild(el("span", "option-size", `~${size}`));
-    btn.addEventListener("click", () => startDownload(probe, opt, btn));
+    btn.addEventListener("click", () => {
+      if (playlistState) startPlaylistDownload(probe, opt, btn, playlistState);
+      else startDownload(probe, opt, btn);
+    });
     return btn;
   }
 
@@ -466,6 +598,46 @@
     }
   }
 
+  async function startPlaylistDownload(probe, opt, btn, playlistState) {
+    btn.disabled = true;
+    if (probeErrorEl) probeErrorEl.hidden = true;
+    const entries = playlistState.selectedUrls();
+    if (!entries.length) {
+      if (probeErrorEl) {
+        showError(probeErrorEl, new Error("Select at least one track."));
+      }
+      btn.disabled = false;
+      return;
+    }
+    const zip = playlistState.wantZip();
+    try {
+      const res = await api("/api/download", {
+        method: "POST",
+        body: {
+          url: probe.url,
+          option_id: opt.id,
+          entries,
+          zip,
+          title: probe.title || undefined,
+        },
+      });
+      if (Array.isArray(res.job_ids) && res.job_ids.length > 1) {
+        for (const jid of res.job_ids) {
+          addDownload(jid, probe, opt, { batchHint: false });
+        }
+      } else {
+        addDownload(res.job_id, probe, opt, {
+          batchHint: true,
+          selected: entries.length,
+        });
+      }
+    } catch (err) {
+      if (probeErrorEl && !(err instanceof AuthCancelled)) showError(probeErrorEl, err);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   const STATUS_LABELS = {
     queued: "Queued",
     downloading: "Downloading",
@@ -474,7 +646,7 @@
     error: "Failed",
   };
 
-  function addDownload(jobId, probe, opt) {
+  function addDownload(jobId, probe, opt, extra = {}) {
     downloadsSection.hidden = false;
 
     const item = el("li", "dl");
@@ -482,9 +654,14 @@
 
     const head = el("div", "dl-head");
     const titles = el("div", "dl-titles");
-    titles.appendChild(el("p", "dl-title", probe.title || "Untitled"));
+    let titleText = probe.title || "Untitled";
+    if (extra.selected && extra.batchHint) {
+      titleText = `${titleText} (${extra.selected} tracks)`;
+    }
+    titles.appendChild(el("p", "dl-title", titleText));
     const platformMeta = PLATFORMS[probe.platform];
     const subParts = [platformMeta ? platformMeta.name : "Web", opt.label];
+    if (probe.kind === "playlist") subParts.push("playlist");
     titles.appendChild(el("p", "dl-sub", subParts.join(" · ")));
     head.appendChild(titles);
     const status = el("span", "dl-status", STATUS_LABELS.queued);
@@ -535,14 +712,21 @@
           fill.style.width = `${progress}%`;
           pct.textContent = `${progress.toFixed(0)}%`;
           const parts = [];
-          const done = fmtSize(job.downloaded_bytes);
-          const total = fmtSize(job.total_bytes);
-          if (done && total) parts.push(`${done} of ${total}`);
-          else if (done) parts.push(done);
-          const speed = fmtSpeed(job.speed);
-          if (speed) parts.push(speed);
-          const eta = fmtDuration(job.eta);
-          if (eta) parts.push(`ETA ${eta}`);
+          if (job.batch && job.batch.total) {
+            parts.push(
+              `${job.batch.done + job.batch.failed}/${job.batch.total} tracks`
+            );
+            if (job.batch.failed) parts.push(`${job.batch.failed} failed`);
+          } else {
+            const done = fmtSize(job.downloaded_bytes);
+            const total = fmtSize(job.total_bytes);
+            if (done && total) parts.push(`${done} of ${total}`);
+            else if (done) parts.push(done);
+            const speed = fmtSpeed(job.speed);
+            if (speed) parts.push(speed);
+            const eta = fmtDuration(job.eta);
+            if (eta) parts.push(`ETA ${eta}`);
+          }
           stats.textContent = parts.join(" · ") || "Downloading…";
           break;
         }
@@ -559,9 +743,20 @@
           if (job.filename) parts.push(job.filename);
           const size = fmtSize(job.filesize);
           if (size) parts.push(size);
+          if (job.batch && job.batch.total) {
+            parts.push(`${job.batch.done}/${job.batch.total} ok`);
+          }
           stats.textContent = parts.join(" · ") || "Ready";
+          // Soft warning (e.g. partial playlist) uses error field while status=done.
+          if (job.error) {
+            errorLine.textContent = job.error;
+            errorLine.hidden = false;
+          }
           saveLink.href = fileUrl(jobId);
           if (job.filename) saveLink.setAttribute("download", job.filename);
+          saveLink.querySelector("span") &&
+            (saveLink.querySelector("span").textContent =
+              job.filename && job.filename.endsWith(".zip") ? "Save ZIP" : "Save file");
           actions.hidden = false;
           if (!autoClicked) {
             autoClicked = true; // one-shot: never re-trigger for this job

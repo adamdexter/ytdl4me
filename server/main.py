@@ -10,6 +10,7 @@ import shutil
 import socket
 import time
 import uuid
+import zipfile
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, suppress
@@ -23,19 +24,20 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from yt_dlp.utils import sanitize_filename
 from yt_dlp.version import __version__ as YT_DLP_VERSION
 
 from . import downloader
 from .downloader import (
     ALL_OPTION_IDS,
     VIDEO_OPTION_IDS,
-    PLAYLIST_ERROR,
-    PlaylistError,
+    PlaylistError as YtdlpPlaylistError,
     ProbeError,
     DownloadFailed,
 )
 from .jobs import Job, JobStore
 from .platforms import detect_platform, looks_like_playlist, platform_kind
+from .playlists import PlaylistError, enumerate_playlist, max_tracks
 from .spotify import SpotifyError, resolve_track
 from .match_sources import download_soundcloud_match, find_soundcloud_match
 from .yt_match import MatchError, prefers_youtube_match, resolve_track as resolve_yt_match
@@ -149,6 +151,11 @@ class ProbeRequest(BaseModel):
 class DownloadRequest(BaseModel):
     url: str
     option_id: str
+    # Multi-item: selected entry URLs from a playlist probe. When set (and
+    # len > 0), the server runs a batch job. zip defaults to True for 2+.
+    entries: list[str] | None = None
+    zip: bool | None = None
+    title: str | None = None
 
 
 @app.get("/api/health")
@@ -223,8 +230,6 @@ async def _validate_url(url: str) -> str | JSONResponse:
             return _error(422, UNSUPPORTED_SITE_ERROR)
         if not await _host_is_public(url):
             return _error(422, "That link points at a private or unreachable address.")
-    if looks_like_playlist(url, platform):
-        return _error(422, PLAYLIST_ERROR)
     return platform
 
 
@@ -238,18 +243,25 @@ async def api_probe(request: Request, body: ProbeRequest):
         return platform
     if _probe_slots.locked():
         return _error(429, "The server is busy reading other links — try again in a moment.")
+    # Playlists can take longer (pagination / flat extract).
+    timeout = 90.0 if looks_like_playlist(url, platform) else _PROBE_TIMEOUT
     try:
         async with _probe_slots:
-            result = await asyncio.wait_for(_probe(url, platform), _PROBE_TIMEOUT)
+            result = await asyncio.wait_for(_probe(url, platform), timeout)
     except asyncio.TimeoutError:
         return _error(422, "Timed out reading that link — please try again.")
-    except (ProbeError, SpotifyError, MatchError) as exc:
+    except (ProbeError, SpotifyError, MatchError, PlaylistError) as exc:
         return _error(422, str(exc))
     return result
 
 
 async def _probe(url: str, platform: str) -> dict:
     loop = asyncio.get_running_loop()
+    # Multi-item: enumerate track list (same input field as single tracks).
+    if looks_like_playlist(url, platform):
+        return await loop.run_in_executor(
+            _probe_executor, enumerate_playlist, url, platform,
+        )
     # Spotify always, and Deezer/TIDAL/Apple Music when no account token is set:
     # public metadata → SoundCloud (native decrypt) if confident → else YouTube.
     if platform == "spotify" or prefers_youtube_match(platform):
@@ -330,6 +342,93 @@ async def api_download(request: Request, body: DownloadRequest):
     if active >= MAX_ACTIVE_JOBS:
         return _error(429, "Too many downloads in flight — try again once some finish.")
 
+    entries = [e.strip() for e in (body.entries or []) if isinstance(e, str) and e.strip()]
+    is_batch = bool(entries) or looks_like_playlist(url, platform)
+
+    # Multi-item without explicit entries: download the whole enumerated list.
+    if is_batch and not entries:
+        if not looks_like_playlist(url, platform):
+            return _error(422, "No tracks selected.")
+        try:
+            loop = asyncio.get_running_loop()
+            plist = await asyncio.wait_for(
+                loop.run_in_executor(_probe_executor, enumerate_playlist, url, platform),
+                90.0,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _error(422, str(exc) or "Couldn't list playlist tracks.")
+        entries = [e["url"] for e in (plist.get("entries") or []) if e.get("url")]
+        batch_title = body.title or plist.get("title")
+    else:
+        batch_title = body.title
+
+    if entries:
+        if len(entries) > max_tracks():
+            return _error(
+                422,
+                f"Too many tracks (max {max_tracks()}). Select fewer and try again.",
+            )
+        # Validate each entry is same platform and public.
+        for entry_url in entries:
+            ep = detect_platform(entry_url)
+            if ep is None:
+                return _error(422, f"Invalid track URL: {entry_url[:80]}")
+            if ep != platform:
+                return _error(422, "Selected tracks must match the playlist source.")
+            if ep == "other":
+                if not ALLOW_ANY_SITE:
+                    return _error(422, "A selected track URL isn't from a supported site.")
+                if not await _host_is_public(entry_url):
+                    return _error(422, "A selected track points at a private address.")
+
+        do_zip = body.zip if body.zip is not None else len(entries) > 1
+
+        # zip=false and multiple tracks → one job per track (frontend can also loop).
+        if not do_zip and len(entries) > 1:
+            if active + len(entries) > MAX_ACTIVE_JOBS:
+                return _error(
+                    429,
+                    "Too many downloads in flight — try a ZIP, or wait for some to finish.",
+                )
+            job_ids = []
+            for entry_url in entries:
+                ep = detect_platform(entry_url) or platform
+                jid = uuid.uuid4().hex
+                jdir = DOWNLOAD_DIR / jid
+                jdir.mkdir(parents=True, exist_ok=True)
+                store.add(Job(
+                    id=jid, url=entry_url, option_id=option_id,
+                    platform=ep, dir=str(jdir),
+                ))
+                task = asyncio.create_task(
+                    _run_job(jid, entry_url, option_id, ep, str(jdir))
+                )
+                _job_tasks.add(task)
+                task.add_done_callback(_job_tasks.discard)
+                job_ids.append(jid)
+            return {"job_id": job_ids[0], "job_ids": job_ids}
+
+        job_id = uuid.uuid4().hex
+        job_dir = DOWNLOAD_DIR / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        store.add(Job(
+            id=job_id, url=url, option_id=option_id, platform=platform,
+            dir=str(job_dir), title=batch_title,
+            batch_total=len(entries), batch_done=0, batch_failed=0,
+            batch_zip=do_zip or len(entries) > 1,
+        ))
+        task = asyncio.create_task(_run_batch_job(
+            job_id, entries, option_id, platform, str(job_dir),
+            title=batch_title, do_zip=do_zip or len(entries) > 1,
+        ))
+        _job_tasks.add(task)
+        task.add_done_callback(_job_tasks.discard)
+        return {"job_id": job_id}
+
+    # Single-item download (legacy path).
+    if looks_like_playlist(url, platform):
+        return _error(422, "Select one or more tracks from the playlist first.")
+
     job_id = uuid.uuid4().hex
     job_dir = DOWNLOAD_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -342,13 +441,16 @@ async def api_download(request: Request, body: DownloadRequest):
 
 
 async def _run_job(job_id: str, url: str, option_id: str,
-                   platform: str, job_dir: str) -> None:
+                   platform: str, job_dir: str,
+                   job_store: JobStore | None = None) -> None:
+    js = job_store or store
     try:
         target_url = url
         filename_stem = None
         tags = None
         download_platform = platform
         sc_url = None
+        artist = title = None
         if platform == "spotify" or prefers_youtube_match(platform):
             loop = asyncio.get_running_loop()
             if platform == "spotify":
@@ -377,14 +479,14 @@ async def _run_job(job_id: str, url: str, option_id: str,
                 target_url = f"ytsearch1:{track['search_query']}"
                 download_platform = "youtube"
         async with _job_semaphore:
-            if store.get(job_id) is None:
+            if js.get(job_id) is None and job_store is None:
                 return
             loop = asyncio.get_running_loop()
             if sc_url:
                 try:
                     def _sc_dl():
                         download_soundcloud_match(
-                            store, job_id, sc_url, option_id, job_dir,
+                            js, job_id, sc_url, option_id, job_dir,
                             filename_stem=filename_stem, tags=tags,
                         )
                     await loop.run_in_executor(_download_executor, _sc_dl)
@@ -395,17 +497,144 @@ async def _run_job(job_id: str, url: str, option_id: str,
                         "SoundCloud match failed for %s, falling back to YouTube: %s",
                         url, sc_exc,
                     )
-                    target_url = f"ytsearch1:{artist} - {title}" if artist else f"ytsearch1:{title}"
+                    target_url = (
+                        f"ytsearch1:{artist} - {title}" if artist
+                        else f"ytsearch1:{title}"
+                    )
                     download_platform = "youtube"
             await loop.run_in_executor(
-                _download_executor, downloader.run_download, store, job_id,
+                _download_executor, downloader.run_download, js, job_id,
                 target_url, option_id, job_dir, filename_stem, tags,
                 download_platform,
             )
-    except (DownloadFailed, PlaylistError, ProbeError, SpotifyError, MatchError) as exc:
-        store.update(job_id, status="error", error=str(exc))
+    except (DownloadFailed, YtdlpPlaylistError, ProbeError, SpotifyError, MatchError) as exc:
+        js.update(job_id, status="error", error=str(exc))
     except Exception as exc:  # noqa: BLE001 — job must never crash silently
-        store.update(job_id, status="error", error=downloader.friendly_error(exc))
+        js.update(job_id, status="error", error=downloader.friendly_error(exc))
+
+
+async def _run_batch_job(
+    job_id: str,
+    entries: list[str],
+    option_id: str,
+    platform: str,
+    job_dir: str,
+    title: str | None,
+    do_zip: bool,
+) -> None:
+    """Download each entry into job_dir/tracks/NNN and optionally zip."""
+    total = len(entries)
+    store.update(
+        job_id, status="downloading", progress=0.0,
+        batch_total=total, batch_done=0, batch_failed=0, batch_zip=do_zip,
+    )
+    tracks_root = Path(job_dir) / "tracks"
+    tracks_root.mkdir(parents=True, exist_ok=True)
+    successes: list[Path] = []
+    failures = 0
+    # Limit intra-batch parallelism so one playlist doesn't monopolize the pool.
+    batch_sem = asyncio.Semaphore(min(2, MAX_CONCURRENT_JOBS))
+    lock = asyncio.Lock()
+
+    async def _one(index: int, entry_url: str) -> None:
+        nonlocal failures
+        async with batch_sem:
+            if store.get(job_id) is None:
+                return
+            sub = tracks_root / f"{index:03d}"
+            sub.mkdir(parents=True, exist_ok=True)
+            child_store = JobStore()
+            child_id = "item"
+            ep = detect_platform(entry_url) or platform
+            child_store.add(Job(
+                id=child_id, url=entry_url, option_id=option_id,
+                platform=ep, dir=str(sub),
+            ))
+            try:
+                await _run_job(
+                    child_id, entry_url, option_id, ep, str(sub),
+                    job_store=child_store,
+                )
+                child = child_store.get(child_id)
+                if child and child.status == "done" and child.filepath and os.path.isfile(child.filepath):
+                    # Stable name: NNN - original filename
+                    src = Path(child.filepath)
+                    dest_name = f"{index:03d} - {src.name}"
+                    dest = tracks_root / dest_name
+                    try:
+                        shutil.move(str(src), str(dest))
+                    except OSError:
+                        shutil.copy2(str(src), str(dest))
+                    async with lock:
+                        successes.append(dest)
+                else:
+                    async with lock:
+                        failures += 1
+            except Exception:  # noqa: BLE001
+                async with lock:
+                    failures += 1
+            async with lock:
+                done = len(successes)
+                store.update(
+                    job_id,
+                    batch_done=done,
+                    batch_failed=failures,
+                    progress=round(100.0 * (done + failures) / total, 1),
+                    status="downloading",
+                )
+
+    try:
+        await asyncio.gather(*[
+            _one(i, entry_url) for i, entry_url in enumerate(entries, 1)
+        ])
+        if not successes:
+            store.update(
+                job_id, status="error", progress=100.0,
+                error="Every track in the selection failed to download.",
+                batch_done=0, batch_failed=failures or total,
+            )
+            return
+
+        store.update(job_id, status="processing", progress=95.0)
+        archive_stem = sanitize_filename(title or "playlist")[:120] or "playlist"
+
+        if do_zip or len(successes) > 1:
+            zip_path = Path(job_dir) / f"{archive_stem}.zip"
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for path in sorted(successes):
+                    # Member names are basename only (no path traversal).
+                    zf.write(path, arcname=path.name)
+            warn = None
+            if failures:
+                warn = f"Finished with {failures} failed track(s); ZIP has {len(successes)}."
+            store.update(
+                job_id,
+                status="done",
+                progress=100.0,
+                filepath=str(zip_path),
+                filename=zip_path.name,
+                filesize=zip_path.stat().st_size,
+                error=warn,
+                batch_done=len(successes),
+                batch_failed=failures,
+            )
+        else:
+            only = successes[0]
+            store.update(
+                job_id,
+                status="done",
+                progress=100.0,
+                filepath=str(only),
+                filename=only.name,
+                filesize=only.stat().st_size,
+                batch_done=1,
+                batch_failed=failures,
+            )
+    except Exception as exc:  # noqa: BLE001
+        store.update(
+            job_id, status="error",
+            error=downloader.friendly_error(exc),
+        )
 
 @app.get("/api/jobs/{job_id}")
 async def api_job(job_id: str):

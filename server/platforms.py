@@ -94,5 +94,6 @@ def looks_like_playlist(url: str, platform: str) -> bool:
             return True
         return "/playlist/" in path
     if platform == "beatport":
-        return any(x in path for x in ("/release/", "/chart/", "/playlist/", "/label/", "/genre/"))
+        # release/chart/playlist have discrete track lists; label/genre are indexes.
+        return any(x in path for x in ("/release/", "/chart/", "/playlist/"))
     return False

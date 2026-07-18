@@ -71,7 +71,8 @@ Browser (static/*, vanilla JS)
 | `server/beatport.py` | Beatport metadata (cloudscraper); native stream if token | `resolve_public`, `probe`, `run_download` |
 | `server/audio_common.py` | Shared audio probe options, ffmpeg finalize, tagging | `finalize_audio`, `probe_payload` |
 | `server/jobs.py` | `Job` dataclass + thread-safe `JobStore` | `JobStore.update/get/prune` |
-| `server/platforms.py` | URL → platform detection + playlist-shape rejection | `detect_platform`, `platform_kind`, `looks_like_playlist` |
+| `server/platforms.py` | URL → platform detection + playlist-shape detection | `detect_platform`, `platform_kind`, `looks_like_playlist` |
+| `server/playlists.py` | Enumerate playlist/album/set track lists for probe UI | `enumerate_playlist`, `PlaylistError` |
 | `server/spotify.py` | Spotify link → public metadata → `ytsearch1:` query (spotDL approach; no DRM) | `resolve_track`, `SpotifyError` |
 | `static/index.html` | Single page + inline SVG icons + `<dialog>` key modal + `noindex` meta | — |
 | `static/app.js` | IIFE: `api()` helper, platform badge, `renderProbe`, `JobPoller`, unlisted-link token consume | `consumeKeyFromUrl`, `keyStore`, `JobPoller` |
@@ -138,7 +139,8 @@ Full table with meanings is in `README.md`. Quick list read by the code:
 `MAX_ACTIVE_JOBS`, `RATE_LIMIT_PER_MINUTE`, `ALLOW_ANY_SITE`, `COOKIES_FILE`, `COOKIES_B64`,
 `COOKIES_CONTENT`, `COOKIES_STATE_FILE`, `WIDEVINE_DEVICE_FILE`, `WIDEVINE_DEVICE_B64`,
 `TIDAL_ACCESS_TOKEN`, `TIDAL_REFRESH_TOKEN`, `TIDAL_COUNTRY_CODE`, `APPLE_MEDIA_USER_TOKEN`,
-`JOOX_COOKIE`, `BEATPORT_ACCESS_TOKEN`. (`SPOTIFY_CLIENT_ID/SECRET` are reserved, unused.)
+`JOOX_COOKIE`, `BEATPORT_ACCESS_TOKEN`, `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`,
+`MAX_PLAYLIST_TRACKS`.
 When you add a new one, update: `README.md` table, `.env.example`, and this list.
 
 ## Local dev, run & verify
@@ -209,8 +211,9 @@ in headless/agent runs it fails on encrypted keys. Prefer the env-var/reseed app
   or `ACCESS_KEY` changed. Re-send the full share link.
 - **429 Too Many Requests** → `RATE_LIMIT_PER_MINUTE` (per-IP, default 30) or `MAX_ACTIVE_JOBS`
   cap hit. Raise the var if legitimate.
-- **Playlist/album URL** → intentionally rejected (`platforms.looks_like_playlist` + a probe
-  guard). Single items only.
+- **Playlist/album URL** → probe returns `kind: "playlist"` + `entries[]` (`server/playlists.py`).
+  Download with selected `entries` + optional `zip`. Cap via `MAX_PLAYLIST_TRACKS` (default 100).
+  Spotify lists work best with `SPOTIFY_CLIENT_ID`/`SECRET`.
 - **Spotify title wrong / missing** → `spotify.py` scrapes public pages (oEmbed + embed
   `__NEXT_DATA__`); Spotify markup changes break it. Fix the fallbacks there.
 

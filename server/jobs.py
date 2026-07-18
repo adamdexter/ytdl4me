@@ -26,9 +26,14 @@ class Job:
     error: str | None = None
     created_at: float = field(default_factory=time.time)
     served_at: float | None = None
+    # Playlist / multi-item batch (None for single-file jobs)
+    batch_total: int | None = None
+    batch_done: int | None = None
+    batch_failed: int | None = None
+    batch_zip: bool | None = None
 
     def to_public(self) -> dict:
-        return {
+        out = {
             "job_id": self.id,
             "status": self.status,
             "progress": round(self.progress, 1),
@@ -40,6 +45,14 @@ class Job:
             "filesize": self.filesize,
             "error": self.error,
         }
+        if self.batch_total is not None:
+            out["batch"] = {
+                "total": self.batch_total,
+                "done": self.batch_done or 0,
+                "failed": self.batch_failed or 0,
+                "zip": bool(self.batch_zip),
+            }
+        return out
 
 
 class JobStore:
