@@ -5,12 +5,12 @@ Self-hostable web app for downloading media from YouTube, Vimeo, SoundCloud, and
 yt-dlp + ffmpeg, serving a no-build-step vanilla JS frontend.
 
 > **⚠️ This is the ORIGINAL design spec — reality has drifted.** For the current, as-built
-> system read `CLAUDE.md` (agent runbook) and `README.md`. Notable additions since this doc:
-> per-IP rate limiting + active-job cap, SSRF/path-traversal guards, a **Deno + `yt-dlp-ejs`**
-> runtime for YouTube's JS challenge, **self-renewing cookies** via `COOKIES_STATE_FILE` on a
-> persistent volume (plus `COOKIES_B64`/`COOKIES_CONTENT` env cookies), an **unlisted-link**
-> access model (token in the URL fragment) with `robots.txt`/`noindex`/`X-Robots-Tag`, and the
-> container now runs as **root** (for volume writes). This file is kept for design history.
+> system read **`AGENTS.md` → `CLAUDE.md`** and **`docs/AS_BUILT.md`**. Notable additions since
+> this doc: rate limiting + job caps, SSRF/path-traversal guards, **Deno + `yt-dlp-ejs`**,
+> self-renewing cookies, unlisted-link access, SoundCloud Widevine CENC, multi-storefront
+> Match cascade (Deezer/TIDAL/Apple/Beatport/Spotify), optional native tokens (`DEEZER_ARL`,
+> etc.), **playlist/album probe + ZIP batch downloads**, portable agent docs under `docs/`.
+> Container runs as **root** for volume writes. This file is kept for design history only.
 
 ## Guiding principles
 

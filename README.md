@@ -1,6 +1,8 @@
 # ytdl4me
 
-Self-hosted web app for downloading media from **YouTube, Vimeo, SoundCloud, Spotify, Deezer, JOOX, TIDAL, Apple Music, and Beatport** — built as a study of modern media pipelines: stream selection, lossless remuxing, and metadata handling. One Docker container: FastAPI + [yt-dlp](https://github.com/yt-dlp/yt-dlp) + ffmpeg behind a clean, no-build-step web UI.
+Self-hosted web app for downloading media from **YouTube, Vimeo, SoundCloud, Spotify, Deezer, JOOX, TIDAL, Apple Music, and Beatport** — including **playlists/albums as ZIP** — built as a study of modern media pipelines: stream selection, lossless remuxing, and metadata handling. One Docker container: FastAPI + [yt-dlp](https://github.com/yt-dlp/yt-dlp) + ffmpeg behind a clean, no-build-step web UI.
+
+**Agents / multi-tool workflows:** start at [`AGENTS.md`](AGENTS.md) (portable runbook index).
 
 > [!WARNING]
 > **FOR RESEARCH AND EDUCATIONAL PURPOSES ONLY.**
@@ -44,7 +46,8 @@ This project exists **solely for research and educational purposes**: studying h
 - **Fast SoundCloud downloads (including DRM tracks).** Progressive HTTP is preferred when available; otherwise segments are fetched concurrently. Label/Go tracks that only offer Widevine `ctr-encrypted-hls` are unlocked via a short license step + CENC decrypt (same class of pipeline as online SC converters), so a ~4-minute track typically finishes in a few seconds at full quality instead of failing or crawling at realtime.
 - **No paid account required for Deezer / TIDAL / Apple Music / Spotify / Beatport.** Public metadata is read from each storefront, then we try a **SoundCloud match with progressive/Widevine decrypt** (often clean AAC ~160 kbps at network speed). If no confident SC hit exists, we fall back to a **YouTube match**. Beatport only exposes free LOFI previews without a Streaming plan; full masters use the same SC/YT cascade. Optional native tokens still unlock first-party streams when you set them.
 - **Spotify, explained honestly.** Spotify streams are DRM-protected and cannot be ripped directly. Like spotDL, ytdl4me reads the track's *public metadata* (artist, title, artwork), finds the best matching audio on YouTube (or SoundCloud when a confident match exists), and downloads that. Quality depends on the match. Playlists and albums are supported (track list + ZIP); reliable Spotify listing works best with free Web API client credentials (see env table).
-- **Live progress.** Per-job progress with speed and ETA; the file auto-downloads in your browser when ready.
+- **Playlists & albums.** Paste a YouTube playlist, SoundCloud set, Spotify/Deezer/TIDAL/Apple album or playlist, or Beatport release — pick tracks with checkboxes and download a **ZIP** (or separate files). Same input field as single links.
+- **Live progress.** Per-job progress with speed and ETA (including multi-track batch counters); the file auto-downloads in your browser when ready.
 - **Unlisted sharing.** Set `ACCESS_KEY` and share a link with the token in its fragment — friends click and go, the bare URL stays gated, and the tool is kept out of search engines and AI crawlers. See [Sharing it (unlisted)](#sharing-it-unlisted).
 - **Self-renewing cookies.** With a persistent volume, yt-dlp's rotated YouTube session is written back after every run, so cookies you provide keep renewing themselves instead of going stale. See [`COOKIES_STATE_FILE`](#configuration).
 - **YouTube-ready out of the box.** The image bundles [Deno](https://deno.com) + `yt-dlp-ejs` to solve YouTube's JavaScript signature challenge — no extra setup.

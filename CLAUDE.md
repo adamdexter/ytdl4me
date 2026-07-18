@@ -1,9 +1,12 @@
 # CLAUDE.md — agent runbook for ytdl4me
 
-Operational guide for an AI agent (Claude Code) maintaining, debugging, or extending this
-app. Read this first. Human-facing docs live in `README.md`; the original design intent is
-`SPEC.md` (see its "As-built" note — reality has drifted from it, this file is ground
-truth). Verify recipes: `.claude/skills/verify/SKILL.md`.
+Operational guide for AI agents maintaining, debugging, or extending this app.
+
+**Multi-agent entry:** start at [`AGENTS.md`](AGENTS.md) if you are Codex, Cursor, Grok, or
+any non-Claude agent — it routes here plus `docs/*`. This file remains the **ops + architecture
+ground truth**. Human-facing product docs: `README.md`. Original design intent: `SPEC.md`
+(drifted). Feature history: [`docs/AS_BUILT.md`](docs/AS_BUILT.md). Verify recipes:
+[`.claude/skills/verify/SKILL.md`](.claude/skills/verify/SKILL.md).
 
 **What it is:** a self-hosted web app that downloads media from YouTube, Vimeo, SoundCloud,
 Spotify, Deezer, JOOX, TIDAL, Apple Music, and Beatport. Python FastAPI + yt-dlp (Python
@@ -25,10 +28,11 @@ vanilla-JS frontend (no build step). Deployed on Railway.
 - **Railway:** project `abundant-laughter`, service `ytdl4me`, environment `production`,
   volume `ytdl4me-volume` mounted at `/state`. CLI authed as the owner.
 - **Vars set in Railway (values not in repo):** `ACCESS_KEY`, `COOKIES_B64` (seed),
-  `COOKIES_STATE_FILE=/state/cookies.txt`, `DOWNLOAD_DIR=/data`.
+  `COOKIES_STATE_FILE=/state/cookies.txt`, `DOWNLOAD_DIR=/data`, `DEEZER_ARL` (native Deezer
+  full streams). Optional later: Beatport/TIDAL/Apple/Spotify API keys — see env list below.
 - **Access = unlisted:** share `https://ytdl4me-production.up.railway.app/#key=<ACCESS_KEY>`.
   Anyone with that link is unlocked; the bare URL is gated. Retrieve `<ACCESS_KEY>` from
-  Railway vars.
+  Railway vars. **Never commit the share link or key.**
 - **Deploys** from GitHub `main` (repo `adamdexter/ytdl4me`). Container runs as **root**
   (needed for the writable `/state` volume).
 
@@ -36,30 +40,37 @@ vanilla-JS frontend (no build step). Deployed on Railway.
 
 ```
 Browser (static/*, vanilla JS)
-  → POST /api/probe   → downloader.probe()  → yt_dlp.extract_info(download=False)  → options JSON
-  → POST /api/download→ creates Job (uuid), 202 → async task → downloader.run_download() in a thread
-  → GET  /api/jobs/{id}      poll status/progress (frontend polls every 800ms)
-  → GET  /api/jobs/{id}/file FileResponse when done
+  → POST /api/probe
+       ├─ looks_like_playlist? → playlists.enumerate_playlist → kind:"playlist" + entries[]
+       ├─ spotify | prefers_youtube_match? → public meta → SC match probe | YT probe
+       └─ else native module / yt-dlp probe → options JSON
+  → POST /api/download {url, option_id, entries?, zip?, title?}
+       ├─ single → Job → _run_job (cascade or native) in download thread pool
+       └─ multi  → batch Job → per-entry _run_job → optional ZIP
+  → GET  /api/jobs/{id}      poll status/progress (+ batch:{total,done,failed,zip})
+  → GET  /api/jobs/{id}/file FileResponse (single file or .zip) when done
 ```
 
-- **Never blocks the event loop:** yt-dlp is blocking, so probe/download run in dedicated
-  `ThreadPoolExecutor`s (`_probe_executor`, `_download_executor` in `main.py`) via
-  `asyncio.to_thread`/`run_in_executor`. Progress hooks fire from worker threads and write
-  to the thread-safe `JobStore` under a lock.
+- **Never blocks the event loop:** yt-dlp / native clients are blocking; probe/download run in
+  dedicated `ThreadPoolExecutor`s (`_probe_executor`, `_download_executor` in `main.py`).
+  Progress hooks write to thread-safe `JobStore` under a lock.
 - **Never re-encodes video:** quality tiers pick source streams; ffmpeg only merges with
   stream copy. Audio "Original" is a bit-exact copy; MP3 tiers transcode with libmp3lame.
 - **SoundCloud is a custom client** (`server/soundcloud.py`), not yt-dlp: progressive HTTP
   first, then concurrent HLS, then Widevine `ctr-encrypted-hls` (license + pure-Python CENC
   decrypt + ffmpeg remux). yt-dlp alone reports DRM tracks as undownloadable. Device via
   `WIDEVINE_DEVICE_FILE` / `WIDEVINE_DEVICE_B64` or auto-cached public L3 `.wvd`.
-- **Never shells out with user input:** yt-dlp is used as a Python library (no subprocess,
-  no injection surface). ffmpeg is invoked by yt-dlp's postprocessors, not by us.
+- **Match cascade** (`match_sources.py`): storefront meta → SoundCloud decrypt match → else
+  YouTube. Used for Spotify always; Deezer/TIDAL/Apple/Beatport when native tokens absent.
+- **Playlists:** same input field; see [`docs/PLAYLISTS.md`](docs/PLAYLISTS.md).
+- **Never shells out with user input:** yt-dlp via Python API only. ffmpeg is invoked by
+  yt-dlp postprocessors or our controlled ffmpeg helpers — never `shell=True` with user URLs.
 
 ## File map
 
 | File | Responsibility | Key symbols |
 |---|---|---|
-| `server/main.py` | FastAPI app, routes, auth middleware, rate limit, job orchestration, TTL cleanup, static mount, `X-Robots-Tag` header | `_access_key_middleware`, `_rate_limited`, `_run_job`, `_cleanup_loop`, `api_health/probe/download/job/file` |
+| `server/main.py` | FastAPI app, routes, auth middleware, rate limit, single + **batch** job orchestration, TTL cleanup, static mount, `X-Robots-Tag` | `_access_key_middleware`, `_rate_limited`, `_run_job`, `_run_batch_job`, `_cleanup_loop`, `api_*` |
 | `server/downloader.py` | yt-dlp option builders, `probe()`, `run_download()`, cookie resolution + **self-renewal**, `friendly_error()`; dispatches SoundCloud to `soundcloud.py` | `_resolve_cookies`, `_cookies_copy`, `build_ydl_opts`, `_video_options`, `_FORMAT_SPECS` |
 | `server/soundcloud.py` | SoundCloud API client: progressive / concurrent HLS / Widevine CENC DRM decrypt | `probe`, `run_download`, `_pick_stream`, `_decrypt_fragment`, `_widevine_content_key` |
 | `server/deezer.py` | Native Deezer Blowfish CDN (optional `DEEZER_ARL`) | `probe`, `run_download` |
@@ -72,10 +83,11 @@ Browser (static/*, vanilla JS)
 | `server/audio_common.py` | Shared audio probe options, ffmpeg finalize, tagging | `finalize_audio`, `probe_payload` |
 | `server/jobs.py` | `Job` dataclass + thread-safe `JobStore` | `JobStore.update/get/prune` |
 | `server/platforms.py` | URL → platform detection + playlist-shape detection | `detect_platform`, `platform_kind`, `looks_like_playlist` |
-| `server/playlists.py` | Enumerate playlist/album/set track lists for probe UI | `enumerate_playlist`, `PlaylistError` |
-| `server/spotify.py` | Spotify link → public metadata → `ytsearch1:` query (spotDL approach; no DRM) | `resolve_track`, `SpotifyError` |
+| `server/playlists.py` | Enumerate playlist/album/set track lists for probe UI | `enumerate_playlist`, `PlaylistError`, `MAX_PLAYLIST_TRACKS` |
+| `server/spotify.py` | Spotify link → public metadata → match cascade (spotDL approach; no DRM) | `resolve_track`, `SpotifyError` |
 | `static/index.html` | Single page + inline SVG icons + `<dialog>` key modal + `noindex` meta | — |
-| `static/app.js` | IIFE: `api()` helper, platform badge, `renderProbe`, `JobPoller`, unlisted-link token consume | `consumeKeyFromUrl`, `keyStore`, `JobPoller` |
+| `static/app.js` | IIFE: `api()`, badge, `renderProbe` / playlist picker, `JobPoller`, unlisted key | `consumeKeyFromUrl`, `renderPlaylistPicker`, `startPlaylistDownload` |
+| `docs/*` + `AGENTS.md` | Portable agent docs (as-built, platforms, playlists, research) | see `AGENTS.md` |
 | `static/app.css` | Dark-first responsive styles | — |
 | `static/robots.txt` | Blocks all crawlers incl. AI bots | — |
 | `Dockerfile` | python:3.12-slim + ffmpeg + Deno (multi-stage) + pip; runs as root | — |
@@ -139,9 +151,10 @@ Full table with meanings is in `README.md`. Quick list read by the code:
 `MAX_ACTIVE_JOBS`, `RATE_LIMIT_PER_MINUTE`, `ALLOW_ANY_SITE`, `COOKIES_FILE`, `COOKIES_B64`,
 `COOKIES_CONTENT`, `COOKIES_STATE_FILE`, `WIDEVINE_DEVICE_FILE`, `WIDEVINE_DEVICE_B64`,
 `TIDAL_ACCESS_TOKEN`, `TIDAL_REFRESH_TOKEN`, `TIDAL_COUNTRY_CODE`, `APPLE_MEDIA_USER_TOKEN`,
-`JOOX_COOKIE`, `BEATPORT_ACCESS_TOKEN`, `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`,
-`MAX_PLAYLIST_TRACKS`.
-When you add a new one, update: `README.md` table, `.env.example`, and this list.
+`DEEZER_ARL`, `JOOX_COOKIE`, `BEATPORT_USERNAME`, `BEATPORT_PASSWORD`, `BEATPORT_ACCESS_TOKEN`,
+`BEATPORT_REFRESH_TOKEN`, `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `MAX_PLAYLIST_TRACKS`.
+When you add a new one, update: `README.md` table, `.env.example`, this list, and `docs/` if
+behavior is agent-relevant.
 
 ## Local dev, run & verify
 
@@ -163,7 +176,10 @@ ACCESS_KEY=dev COOKIES_FILE=/path/to/cookies.txt \
   - SoundCloud: `https://soundcloud.com/forss/flickermood`
   - Vimeo (720p src → no lower tiers): `https://vimeo.com/76979871`
   - Spotify: `https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT`
+  - Deezer album (playlist UI): `https://www.deezer.com/album/302127`
+  - YouTube playlist: `https://www.youtube.com/playlist?list=PLBCF2DAC6FFB574DE`
 - Download flow: `POST /api/download` → poll `GET /api/jobs/{id}` → `GET /api/jobs/{id}/file`.
+  Playlist ZIP: pass `entries` + `zip:true` (see `docs/PLAYLISTS.md`).
   A ~20-line urllib helper (submit/poll/fetch, sends `X-Access-Key`) is the fastest driver.
 - Check outputs with `ffprobe -show_entries stream=codec_name,width,height,bit_rate`: tiers
   must be exactly 1080/720 high; `mp3_N` must be `bit_rate=N000`; `audio_best` native codec.
@@ -227,11 +243,11 @@ in headless/agent runs it fails on encrypted keys. Prefer the env-var/reseed app
   strings). Prefer progressive → plain HLS → CTR DRM. Verify a known DRM track
   (`https://soundcloud.com/1985music1985/line-the-money`) finishes in a few seconds as AAC
   ~160 kbps with clean `ffprobe` decode (zero AAC errors).
-- **Add a platform:** extend `PLATFORM_HOSTS` in `platforms.py` (backend) *and* the mirror in
-  `app.js` (badge), add an inline SVG icon in `index.html`, set its `kind` (video/audio), and
-  confirm yt-dlp supports it. If audio-only, ensure `video_options` is empty.
+- **Add a platform:** extend hosts in `platforms.py` *and* `app.js`, icon in `index.html`,
+  row in `docs/PLATFORMS.md`. Prefer Match cascade unless a native client is justified.
+- **Add playlist enum:** `looks_like_playlist` + `_enum_*` in `playlists.py` + `docs/PLAYLISTS.md`.
 - **Add an env var:** read it in the relevant module; document in `README.md` table,
-  `.env.example`, and the config list above.
+  `.env.example`, the config list above, and Railway notes if production needs it.
 - **Bump yt-dlp / Deno:** edit `requirements.txt` (`yt-dlp`, `yt-dlp-ejs`) and the Deno pin in
   `Dockerfile` (`denoland/deno:bin-<ver>`); redeploy from source; verify a real YouTube
   download. This is the usual fix when YouTube breaks extraction.
@@ -242,4 +258,6 @@ in headless/agent runs it fails on encrypted keys. Prefer the env-var/reseed app
 - Never pass user input to a shell; keep using the yt-dlp Python API.
 - File serving is path-traversal-guarded (`realpath` contained in the job dir) — keep it.
 - Keep the README disclaimer and `robots.txt`; this is a research/educational, unlisted tool.
-- Keep commits on the noreply identity; never commit secrets/cookies/.env.
+- Keep commits on the noreply identity; never commit secrets/cookies/.env / share links with keys.
+- Do not integrate third-party ripper sites (lucida, free-mp3-download, grey account shops) as backends.
+- When docs and code disagree: **code wins**, then fix `CLAUDE.md` / `docs/AS_BUILT.md` in the same change.
