@@ -1,8 +1,40 @@
 # ytdl4me
 
-Self-hosted web app for downloading media from **YouTube, Vimeo, SoundCloud, and Spotify** — for personal, research, and educational use. One Docker container: FastAPI + [yt-dlp](https://github.com/yt-dlp/yt-dlp) + ffmpeg behind a clean, no-build-step web UI.
+Self-hosted web app for downloading media from **YouTube, Vimeo, SoundCloud, and Spotify** — built as a study of modern media pipelines: stream selection, lossless remuxing, and metadata handling. One Docker container: FastAPI + [yt-dlp](https://github.com/yt-dlp/yt-dlp) + ffmpeg behind a clean, no-build-step web UI.
+
+> [!WARNING]
+> **FOR RESEARCH AND EDUCATIONAL PURPOSES ONLY.**
+> This tool must **not** be used to download copyrighted content or any content you do not own or have explicit permission to save. You are solely responsible for how you use it. Read the [full disclaimer](#disclaimer--acceptable-use) before running it.
 
 ![ytdl4me UI](docs/screenshot.png)
+
+## Disclaimer & acceptable use
+
+This project exists **solely for research and educational purposes**: studying how media platforms deliver streams, and how stream selection, remuxing, transcoding, and metadata pipelines work. It is not designed, intended, or endorsed for infringing anyone's rights, and it is provided **as-is, without warranty of any kind**.
+
+**✅ You may use it only with:**
+
+- content **you created and own**;
+- content whose rights holder has given you **explicit permission** to download;
+- **public-domain** media, or media under an **open license** (e.g. Creative Commons) that permits downloading;
+- your own uploads that you're backing up from your own accounts.
+
+**🚫 You may not use it to:**
+
+- download, copy, or archive **copyrighted content without authorization** from the rights holder;
+- **redistribute, re-upload, sell, or monetize** anything you download;
+- bypass **paywalls, subscriber-only content, purchases, or DRM** (the tool does not do this, and no support will be given for attempting it);
+- perform **bulk scraping or mass downloading** of any platform.
+
+**Platform terms.** The terms of service of YouTube, Vimeo, SoundCloud, and Spotify generally prohibit unauthorized downloading — in many cases *even for content that is freely licensed*. Using this tool against those platforms may breach their terms regardless of copyright status. Reviewing and complying with the applicable terms is **your responsibility**.
+
+**Spotify.** This tool never touches Spotify's DRM-protected streams and does not circumvent any technical protection measure. It reads a track's *public metadata* (artist, title, artwork) and downloads the closest matching audio from YouTube — the same approach as spotDL. Everything above about copyright and platform terms applies to that YouTube download.
+
+**Jurisdiction.** Copyright and private-copying law varies by country. What is lawful in one jurisdiction may be infringement in another. Know your local law before using this tool.
+
+**No liability.** The authors and contributors accept **no responsibility or liability** for what you do with this software, for any content you download, or for any consequences of its use — including account suspensions, ToS enforcement, or legal claims. Misuse is entirely at your own risk.
+
+**When in doubt, don't download it.** If you cannot clearly point to why you have the right to save a file, assume you don't.
 
 ## Features
 
@@ -130,6 +162,6 @@ YouTube sometimes challenges requests from datacenter IPs (common on cloud hosts
 
 Cookies expire; re-export them if the error returns. Prefer a throwaway Google account over your main one.
 
-## Legal & ethics
+## Legal
 
-ytdl4me is intended for **personal, research, and educational use**: your own content, openly licensed media, and material you have permission to download. Respect copyright and each platform's terms of service. Don't redistribute downloaded content. You are responsible for how you use this tool.
+See the [Disclaimer & acceptable use](#disclaimer--acceptable-use) section at the top of this README — it is a condition of using this software. **Research and educational purposes only**; never for copyrighted content or content that isn't yours.
