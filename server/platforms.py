@@ -14,10 +14,11 @@ _TIDAL_HOSTS = {"tidal.com"}
 _APPLE_HOSTS = {
     "music.apple.com", "itunes.apple.com", "apple.com",
 }
+_BEATPORT_HOSTS = {"beatport.com", "pro.beatport.com", "stream.beatport.com"}
 
 # Platforms that are always audio-only in this app.
 _AUDIO_PLATFORMS = {
-    "soundcloud", "spotify", "deezer", "joox", "tidal", "applemusic",
+    "soundcloud", "spotify", "deezer", "joox", "tidal", "applemusic", "beatport",
 }
 
 
@@ -58,6 +59,8 @@ def detect_platform(url: str) -> str | None:
         return "applemusic"
     if host in ("apple.com",) and "/music" in (parsed.path or ""):
         return "applemusic"
+    if host in _BEATPORT_HOSTS or host.endswith(".beatport.com"):
+        return "beatport"
     return "other"
 
 
@@ -90,4 +93,6 @@ def looks_like_playlist(url: str, platform: str) -> bool:
         if "/album/" in path and "i=" not in query and "/song/" not in path:
             return True
         return "/playlist/" in path
+    if platform == "beatport":
+        return any(x in path for x in ("/release/", "/chart/", "/playlist/", "/label/", "/genre/"))
     return False

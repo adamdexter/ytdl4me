@@ -1,6 +1,6 @@
 # ytdl4me
 
-Self-hosted web app for downloading media from **YouTube, Vimeo, SoundCloud, Spotify, Deezer, JOOX, TIDAL, and Apple Music** — built as a study of modern media pipelines: stream selection, lossless remuxing, and metadata handling. One Docker container: FastAPI + [yt-dlp](https://github.com/yt-dlp/yt-dlp) + ffmpeg behind a clean, no-build-step web UI.
+Self-hosted web app for downloading media from **YouTube, Vimeo, SoundCloud, Spotify, Deezer, JOOX, TIDAL, Apple Music, and Beatport** — built as a study of modern media pipelines: stream selection, lossless remuxing, and metadata handling. One Docker container: FastAPI + [yt-dlp](https://github.com/yt-dlp/yt-dlp) + ffmpeg behind a clean, no-build-step web UI.
 
 > [!WARNING]
 > **FOR RESEARCH AND EDUCATIONAL PURPOSES ONLY.**
@@ -42,7 +42,7 @@ This project exists **solely for research and educational purposes**: studying h
 - **Honest "best" audio.** "Original (best quality)" is a bit-exact copy of the source audio stream in its native container (Opus or M4A). The sources are already lossy, so we deliberately don't offer FLAC/WAV — it would triple the file size and add zero quality.
 - **MP3 tiers.** 320 / 256 / 192 / 128 kbps CBR via LAME, with metadata and cover art embedded — for players that need MP3.
 - **Fast SoundCloud downloads (including DRM tracks).** Progressive HTTP is preferred when available; otherwise segments are fetched concurrently. Label/Go tracks that only offer Widevine `ctr-encrypted-hls` are unlocked via a short license step + CENC decrypt (same class of pipeline as online SC converters), so a ~4-minute track typically finishes in a few seconds at full quality instead of failing or crawling at realtime.
-- **No paid account required for Deezer / TIDAL / Apple Music / Spotify.** Public metadata is read from each storefront, then we try a **SoundCloud match with progressive/Widevine decrypt** (often clean AAC ~160 kbps at network speed). If no confident SC hit exists, we fall back to a **YouTube match**. Optional native tokens still unlock first-party streams when you set them.
+- **No paid account required for Deezer / TIDAL / Apple Music / Spotify / Beatport.** Public metadata is read from each storefront, then we try a **SoundCloud match with progressive/Widevine decrypt** (often clean AAC ~160 kbps at network speed). If no confident SC hit exists, we fall back to a **YouTube match**. Beatport only exposes free LOFI previews without a Streaming plan; full masters use the same SC/YT cascade. Optional native tokens still unlock first-party streams when you set them.
 - **Spotify, explained honestly.** Spotify streams are DRM-protected and cannot be ripped directly. Like spotDL, ytdl4me reads the track's *public metadata* (artist, title, artwork), finds the best matching audio on YouTube, and downloads that. Quality depends on the match; single tracks only in v1.
 - **Live progress.** Per-job progress with speed and ETA; the file auto-downloads in your browser when ready.
 - **Unlisted sharing.** Set `ACCESS_KEY` and share a link with the token in its fragment — friends click and go, the bare URL stays gated, and the tool is kept out of search engines and AI crawlers. See [Sharing it (unlisted)](#sharing-it-unlisted).
@@ -116,7 +116,8 @@ All variables are optional. See [.env.example](.env.example).
 | `TIDAL_COUNTRY_CODE` | `US` | TIDAL catalog country (native path). |
 | `APPLE_MEDIA_USER_TOKEN` | unset | Optional `media-user-token` for **native** Apple Music AAC. Without it, links use public catalog metadata + **YouTube match**. |
 | `JOOX_COOKIE` | guest default | Optional JOOX session cookie override for regional catalogs. |
-| `DEEZER_ARL` | unset | Optional Deezer `arl` for **native** full-length streams. Without it, Deezer links use public metadata + **YouTube match** (not the 30s preview). |
+| `DEEZER_ARL` | unset | Optional Deezer `arl` for **native** full-length streams. Without it, Deezer links use public metadata + SC/YT match. |
+| `BEATPORT_ACCESS_TOKEN` | unset | Optional Beatport Streaming OAuth bearer for **native** AAC/FLAC. Without it, Beatport uses public metadata + SC/YT match. |
 
 ## Sharing it (unlisted)
 

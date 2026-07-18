@@ -268,6 +268,7 @@ def probe(url: str, platform: str) -> dict:
         "joox": ("joox", "JooxError"),
         "tidal": ("tidal", "TidalError"),
         "applemusic": ("applemusic", "AppleMusicError"),
+        "beatport": ("beatport", "BeatportError"),
     }
     if platform in _CUSTOM:
         mod_name, _err_name = _CUSTOM[platform]
@@ -510,6 +511,7 @@ def run_download(
         "joox": "joox",
         "tidal": "tidal",
         "applemusic": "applemusic",
+        "beatport": "beatport",
     }
     if platform in _CUSTOM:
         import importlib

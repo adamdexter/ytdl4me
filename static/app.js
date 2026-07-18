@@ -67,6 +67,7 @@
     joox: { name: "JOOX", icon: "icon-joox" },
     tidal: { name: "TIDAL", icon: "icon-tidal" },
     applemusic: { name: "Apple Music", icon: "icon-applemusic" },
+    beatport: { name: "Beatport", icon: "icon-beatport" },
   };
 
   const PLATFORM_HOSTS = {
@@ -90,6 +91,9 @@
     "geo.music.apple.com": "applemusic",
     "embed.music.apple.com": "applemusic",
     "itunes.apple.com": "applemusic",
+    "beatport.com": "beatport",
+    "pro.beatport.com": "beatport",
+    "stream.beatport.com": "beatport",
   };
 
   function detectPlatform(raw) {
@@ -102,7 +106,7 @@
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
     // Mirror the backend: strip common subdomains.
     let host = url.hostname.toLowerCase()
-      .replace(/^(www|m|listen|open|play|geo|embed)\./, "");
+      .replace(/^(www|m|listen|open|play|geo|embed|pro|stream)\./, "");
     // second strip for www.m.* style
     host = host.replace(/^(www|m)\./, "");
     if (PLATFORM_HOSTS[host]) return PLATFORM_HOSTS[host];
@@ -110,6 +114,7 @@
     if (host.endsWith(".joox.com")) return "joox";
     if (host.endsWith(".tidal.com")) return "tidal";
     if (host.endsWith(".soundcloud.com")) return "soundcloud";
+    if (host.endsWith(".beatport.com") || host === "beatport.com") return "beatport";
     if (host.includes("music.apple.") || host === "apple.com") return "applemusic";
     return "other";
   }

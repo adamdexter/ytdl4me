@@ -6,9 +6,9 @@ app. Read this first. Human-facing docs live in `README.md`; the original design
 truth). Verify recipes: `.claude/skills/verify/SKILL.md`.
 
 **What it is:** a self-hosted web app that downloads media from YouTube, Vimeo, SoundCloud,
-Spotify, Deezer, JOOX, TIDAL, and Apple Music. Python FastAPI + yt-dlp (Python API, never
-the CLI) + custom audio clients + ffmpeg + Deno, one Docker container, vanilla-JS frontend
-(no build step). Deployed on Railway.
+Spotify, Deezer, JOOX, TIDAL, Apple Music, and Beatport. Python FastAPI + yt-dlp (Python
+API, never the CLI) + custom audio clients + ffmpeg + Deno, one Docker container,
+vanilla-JS frontend (no build step). Deployed on Railway.
 
 ## ⚠️ Secrets & repo hygiene (this repo is PUBLIC)
 
@@ -68,6 +68,7 @@ Browser (static/*, vanilla JS)
 | `server/applemusic.py` | Native Apple AAC when `APPLE_MEDIA_USER_TOKEN` set | `probe`, `run_download` |
 | `server/yt_match.py` | Public metadata resolvers for Deezer/TIDAL/Apple (no paid tokens) | `prefers_youtube_match`, `resolve_track` |
 | `server/match_sources.py` | Cascade: SoundCloud search+decrypt, else YouTube match | `find_soundcloud_match`, `download_soundcloud_match` |
+| `server/beatport.py` | Beatport metadata (cloudscraper); native stream if token | `resolve_public`, `probe`, `run_download` |
 | `server/audio_common.py` | Shared audio probe options, ffmpeg finalize, tagging | `finalize_audio`, `probe_payload` |
 | `server/jobs.py` | `Job` dataclass + thread-safe `JobStore` | `JobStore.update/get/prune` |
 | `server/platforms.py` | URL → platform detection + playlist-shape rejection | `detect_platform`, `platform_kind`, `looks_like_playlist` |
@@ -137,7 +138,7 @@ Full table with meanings is in `README.md`. Quick list read by the code:
 `MAX_ACTIVE_JOBS`, `RATE_LIMIT_PER_MINUTE`, `ALLOW_ANY_SITE`, `COOKIES_FILE`, `COOKIES_B64`,
 `COOKIES_CONTENT`, `COOKIES_STATE_FILE`, `WIDEVINE_DEVICE_FILE`, `WIDEVINE_DEVICE_B64`,
 `TIDAL_ACCESS_TOKEN`, `TIDAL_REFRESH_TOKEN`, `TIDAL_COUNTRY_CODE`, `APPLE_MEDIA_USER_TOKEN`,
-`JOOX_COOKIE`. (`SPOTIFY_CLIENT_ID/SECRET` are reserved, unused.)
+`JOOX_COOKIE`, `BEATPORT_ACCESS_TOKEN`. (`SPOTIFY_CLIENT_ID/SECRET` are reserved, unused.)
 When you add a new one, update: `README.md` table, `.env.example`, and this list.
 
 ## Local dev, run & verify

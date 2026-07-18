@@ -20,13 +20,18 @@ class MatchError(Exception):
 
 
 def prefers_youtube_match(platform: str) -> bool:
-    """True when we should skip native DRM streams and match on YouTube."""
+    """True when we should skip native DRM streams and match via SC/YouTube."""
     if platform == "deezer":
         return not bool(os.environ.get("DEEZER_ARL"))
     if platform == "tidal":
         return not bool(os.environ.get("TIDAL_ACCESS_TOKEN"))
     if platform == "applemusic":
         return not bool(os.environ.get("APPLE_MEDIA_USER_TOKEN"))
+    if platform == "beatport":
+        # Full masters need Streaming plan; free path is SC/YT cascade.
+        # Native free_downloads are rare and handled if BEATPORT tries native first
+        # only when a token is set.
+        return not bool(os.environ.get("BEATPORT_ACCESS_TOKEN"))
     return False
 
 
@@ -38,8 +43,13 @@ def resolve_track(platform: str, url: str) -> dict:
         return _resolve_tidal(url)
     if platform == "applemusic":
         return _resolve_apple(url)
+    if platform == "beatport":
+        from . import beatport as bp
+        try:
+            return bp.resolve_public(url)
+        except bp.BeatportError as exc:
+            raise MatchError(str(exc)) from exc
     raise MatchError(f"No YouTube-match resolver for {platform}.")
-
 
 def _pack(artist: str | None, title: str | None, *, thumbnail=None,
           duration=None, isrc=None, source_label: str) -> dict:

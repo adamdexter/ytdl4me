@@ -60,7 +60,7 @@ _SERVED_GRACE = 300  # delete job dir 5 min after first successful serve
 
 UNSUPPORTED_SITE_ERROR = (
     "Only YouTube, Vimeo, SoundCloud, Spotify, Deezer, JOOX, TIDAL, "
-    "and Apple Music links are supported."
+    "Apple Music, and Beatport links are supported."
 )
 INVALID_URL_ERROR = "That doesn't look like a valid link — paste a full http(s) URL."
 
