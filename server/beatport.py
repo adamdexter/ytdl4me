@@ -269,17 +269,24 @@ def resolve_public(url: str) -> dict:
     duration = None
     if track.get("length_ms"):
         duration = float(track["length_ms"]) / 1000.0
+    # Prefer a clean search string for SC/YT (strip "Original Mix" noise).
+    search_title = re.sub(
+        r"\s*[\(\[]\s*(original\s+mix|extended\s+mix|club\s+mix|radio\s+edit|"
+        r"original|extended)\s*[\)\]]\s*$",
+        "",
+        title,
+        flags=re.I,
+    ).strip() or title
+    search_query = f"{artist} - {search_title}" if artist else search_title
     return {
         "artist": artist or None,
         "title": title,
         "thumbnail": _thumbnail(track),
         "duration": duration,
         "isrc": track.get("isrc"),
-        "search_query": f"{artist} - {title}" if artist else title,
+        "search_query": search_query,
         "search_query_isrc": (
-            f"{artist} - {title} {track['isrc']}"
-            if artist and track.get("isrc")
-            else (f"{title} {track['isrc']}" if track.get("isrc") else None)
+            f"{search_query} {track['isrc']}" if track.get("isrc") else None
         ),
         "source_label": "Beatport",
         "sample_url": track.get("sample_url"),

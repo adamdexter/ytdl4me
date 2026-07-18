@@ -22,11 +22,29 @@ from .jobs import JobStore
 log = logging.getLogger("ytdl4me.match_sources")
 
 # Title tokens that usually mean a rework rather than the original master.
+# Note: plain "mix" alone is too broad (Beatport "Original Mix"); handle that
+# via _strip_mix_suffix instead of listing bare "mix" here.
 _REWORK = re.compile(
-    r"\b(remix|flip|edit|cover|mashup?|bootleg|mix|vip|refix|remake|"
-    r"instrumental|karaoke|live|sped\s*up|slowed|nightcore|8d)\b",
+    r"\b(remix|flip|bootleg|vip|refix|remake|mashup?|"
+    r"instrumental|karaoke|live|sped\s*up|slowed|nightcore|8d|"
+    r"extended\s+mix|club\s+mix|radio\s+edit|dub\s+mix)\b",
     re.I,
 )
+# Beatport-style parenthetical mix labels to strip for broader search.
+_MIX_SUFFIX = re.compile(
+    r"\s*[\(\[]\s*(original\s+mix|extended\s+mix|club\s+mix|radio\s+edit|"
+    r"original|extended|edit|mix)\s*[\)\]]\s*$",
+    re.I,
+)
+
+
+def _strip_mix_suffix(title: str) -> str:
+    t = title.strip()
+    prev = None
+    while prev != t:
+        prev = t
+        t = _MIX_SUFFIX.sub("", t).strip()
+    return t or title
 
 
 def find_soundcloud_match(
@@ -43,36 +61,57 @@ def find_soundcloud_match(
     except Exception:
         return None
 
-    query = f"{artist} {title}".strip() if artist else title
-    api = (
-        "https://api-v2.soundcloud.com/search/tracks?"
-        + urllib.parse.urlencode({
-            "q": query,
-            "client_id": client_id,
-            "limit": "12",
-            "app_locale": "en",
-        })
-    )
-    try:
-        raw = ac.http_get(
-            api,
-            headers={
-                "User-Agent": ac.UA,
-                "Origin": "https://soundcloud.com",
-                "Referer": "https://soundcloud.com/",
-            },
-            timeout=20,
+    bare = _strip_mix_suffix(title)
+    queries = []
+    for t in (title, bare):
+        q = f"{artist} {t}".strip() if artist else t
+        if q and q not in queries:
+            queries.append(q)
+        if artist and t:
+            q2 = f"{artist} - {t}"
+            if q2 not in queries:
+                queries.append(q2)
+
+    collection: list = []
+    seen_ids: set = set()
+    for query in queries[:3]:
+        api = (
+            "https://api-v2.soundcloud.com/search/tracks?"
+            + urllib.parse.urlencode({
+                "q": query,
+                "client_id": client_id,
+                "limit": "12",
+                "app_locale": "en",
+            })
         )
-        collection = json.loads(raw).get("collection") or []
-    except Exception as exc:
-        log.debug("SoundCloud search failed: %s", exc)
+        try:
+            raw = ac.http_get(
+                api,
+                headers={
+                    "User-Agent": ac.UA,
+                    "Origin": "https://soundcloud.com",
+                    "Referer": "https://soundcloud.com/",
+                },
+                timeout=20,
+            )
+            for item in json.loads(raw).get("collection") or []:
+                iid = item.get("id")
+                if iid in seen_ids:
+                    continue
+                seen_ids.add(iid)
+                collection.append(item)
+        except Exception as exc:
+            log.debug("SoundCloud search failed for %r: %s", query, exc)
+
+    if not collection:
         return None
 
-    title_l = title.lower()
+    # Score against bare title (without "Original Mix") so Beatport labels match
+    # better against SC uploads.
+    title_l = bare.lower()
     artist_l = (artist or "").lower()
     title_tokens = {t for t in re.findall(r"[a-z0-9]+", title_l) if len(t) > 2}
     want_rework = bool(_REWORK.search(title))
-
     best = None
     best_score = -1e9
     for t in collection:
@@ -104,8 +143,12 @@ def find_soundcloud_match(
                 score += 20
             elif delta <= 12:
                 score += 5
+            elif delta <= 30:
+                score -= 25
             else:
-                score -= min(40, delta)  # heavily penalize wrong length
+                # Promo clips / different edits — reject unless everything else is perfect
+                score -= 50 + min(40, delta / 2)
+
         # Prefer non-reworks unless the original title is a rework
         if _REWORK.search(cand_title) and not want_rework:
             score -= 30
@@ -132,7 +175,7 @@ def find_soundcloud_match(
             }
 
     # Threshold: require a reasonably confident hit
-    if not best or best_score < 45:
+    if not best or best_score < 50:
         log.debug(
             "No confident SoundCloud match for %r / %r (best=%s)",
             artist, title, best,
