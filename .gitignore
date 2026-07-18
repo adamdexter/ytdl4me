@@ -4,3 +4,18 @@ downloads/
 .env
 *.pyc
 .DS_Store
+
+# Local secrets / session material (never commit)
+cookies.txt
+*.cookies
+*.wvd
+.env.*
+!.env.example
+
+# Accidental local download / probe artifacts at repo root
+*.m4a
+*.mp3
+*.flac
+*.wav
+*.aac
+*.ogg
