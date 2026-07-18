@@ -117,7 +117,8 @@ All variables are optional. See [.env.example](.env.example).
 | `APPLE_MEDIA_USER_TOKEN` | unset | Optional `media-user-token` for **native** Apple Music AAC. Without it, links use public catalog metadata + **YouTube match**. |
 | `JOOX_COOKIE` | guest default | Optional JOOX session cookie override for regional catalogs. |
 | `DEEZER_ARL` | unset | Optional Deezer `arl` for **native** full-length streams. Without it, Deezer links use public metadata + SC/YT match. |
-| `BEATPORT_ACCESS_TOKEN` | unset | Optional Beatport Streaming OAuth bearer for **native** AAC/FLAC. Without it, Beatport uses public metadata + SC/YT match. |
+| `BEATPORT_USERNAME` / `BEATPORT_PASSWORD` | unset | Optional Beatport Streaming login ([beatportdl](https://github.com/unspok3n/beatportdl)-compatible OAuth) for **native** AAC/FLAC. Without them, Beatport uses public metadata + SC/YT match. |
+| `BEATPORT_ACCESS_TOKEN` | unset | Optional raw OAuth bearer (alternative to username/password). |
 
 ## Sharing it (unlisted)
 

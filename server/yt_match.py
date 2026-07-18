@@ -28,10 +28,13 @@ def prefers_youtube_match(platform: str) -> bool:
     if platform == "applemusic":
         return not bool(os.environ.get("APPLE_MEDIA_USER_TOKEN"))
     if platform == "beatport":
-        # Full masters need Streaming plan; free path is SC/YT cascade.
-        # Native free_downloads are rare and handled if BEATPORT tries native first
-        # only when a token is set.
-        return not bool(os.environ.get("BEATPORT_ACCESS_TOKEN"))
+        # Full masters need Streaming plan (beatportdl-style login).
+        # Without creds: SC decrypt / YouTube cascade.
+        try:
+            from .beatport import has_native_credentials
+            return not has_native_credentials()
+        except Exception:
+            return not bool(os.environ.get("BEATPORT_ACCESS_TOKEN"))
     return False
 
 
