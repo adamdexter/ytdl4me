@@ -310,7 +310,7 @@ async def _run_job(job_id: str, url: str, option_id: str,
                 return
             await asyncio.get_running_loop().run_in_executor(
                 _download_executor, downloader.run_download, store, job_id,
-                target_url, option_id, job_dir, filename_stem, tags,
+                target_url, option_id, job_dir, filename_stem, tags, platform,
             )
     except (DownloadFailed, PlaylistError, ProbeError, SpotifyError) as exc:
         store.update(job_id, status="error", error=str(exc))

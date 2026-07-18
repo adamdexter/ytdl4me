@@ -47,6 +47,10 @@ Browser (static/*, vanilla JS)
   to the thread-safe `JobStore` under a lock.
 - **Never re-encodes video:** quality tiers pick source streams; ffmpeg only merges with
   stream copy. Audio "Original" is a bit-exact copy; MP3 tiers transcode with libmp3lame.
+- **SoundCloud is a custom client** (`server/soundcloud.py`), not yt-dlp: progressive HTTP
+  first, then concurrent HLS, then Widevine `ctr-encrypted-hls` (license + pure-Python CENC
+  decrypt + ffmpeg remux). yt-dlp alone reports DRM tracks as undownloadable. Device via
+  `WIDEVINE_DEVICE_FILE` / `WIDEVINE_DEVICE_B64` or auto-cached public L3 `.wvd`.
 - **Never shells out with user input:** yt-dlp is used as a Python library (no subprocess,
   no injection surface). ffmpeg is invoked by yt-dlp's postprocessors, not by us.
 
@@ -55,7 +59,8 @@ Browser (static/*, vanilla JS)
 | File | Responsibility | Key symbols |
 |---|---|---|
 | `server/main.py` | FastAPI app, routes, auth middleware, rate limit, job orchestration, TTL cleanup, static mount, `X-Robots-Tag` header | `_access_key_middleware`, `_rate_limited`, `_run_job`, `_cleanup_loop`, `api_health/probe/download/job/file` |
-| `server/downloader.py` | yt-dlp option builders, `probe()`, `run_download()`, cookie resolution + **self-renewal**, `friendly_error()` | `_resolve_cookies`, `_cookies_copy`, `build_ydl_opts`, `_video_options`, `_FORMAT_SPECS` |
+| `server/downloader.py` | yt-dlp option builders, `probe()`, `run_download()`, cookie resolution + **self-renewal**, `friendly_error()`; dispatches SoundCloud to `soundcloud.py` | `_resolve_cookies`, `_cookies_copy`, `build_ydl_opts`, `_video_options`, `_FORMAT_SPECS` |
+| `server/soundcloud.py` | SoundCloud API client: progressive / concurrent HLS / Widevine CENC DRM decrypt | `probe`, `run_download`, `_pick_stream`, `_decrypt_fragment`, `_widevine_content_key` |
 | `server/jobs.py` | `Job` dataclass + thread-safe `JobStore` | `JobStore.update/get/prune` |
 | `server/platforms.py` | URL → platform detection + playlist-shape rejection | `detect_platform`, `platform_kind`, `looks_like_playlist` |
 | `server/spotify.py` | Spotify link → public metadata → `ytsearch1:` query (spotDL approach; no DRM) | `resolve_track`, `SpotifyError` |
@@ -122,7 +127,8 @@ done. Then update the guidance here if the path changed.
 Full table with meanings is in `README.md`. Quick list read by the code:
 `PORT`, `ACCESS_KEY`, `DOWNLOAD_DIR`, `FILE_TTL_MINUTES`, `MAX_CONCURRENT_JOBS`,
 `MAX_ACTIVE_JOBS`, `RATE_LIMIT_PER_MINUTE`, `ALLOW_ANY_SITE`, `COOKIES_FILE`, `COOKIES_B64`,
-`COOKIES_CONTENT`, `COOKIES_STATE_FILE`. (`SPOTIFY_CLIENT_ID/SECRET` are reserved, unused.)
+`COOKIES_CONTENT`, `COOKIES_STATE_FILE`, `WIDEVINE_DEVICE_FILE`, `WIDEVINE_DEVICE_B64`.
+(`SPOTIFY_CLIENT_ID/SECRET` are reserved, unused.)
 When you add a new one, update: `README.md` table, `.env.example`, and this list.
 
 ## Local dev, run & verify
@@ -204,6 +210,10 @@ in headless/agent runs it fails on encrypted keys. Prefer the env-var/reseed app
   in `downloader.py`; keep the "never re-encode video" rule (merge/stream-copy only). Add the
   new `option_id` to `VIDEO_OPTION_IDS`/`AUDIO_OPTION_IDS` and render it in `renderProbe`
   (`app.js`). Verify the output resolution/bitrate with `ffprobe`.
+- **Touch SoundCloud carefully:** logic lives in `server/soundcloud.py` (not yt-dlp format
+  strings). Prefer progressive → plain HLS → CTR DRM. Verify a known DRM track
+  (`https://soundcloud.com/1985music1985/line-the-money`) finishes in a few seconds as AAC
+  ~160 kbps with clean `ffprobe` decode (zero AAC errors).
 - **Add a platform:** extend `PLATFORM_HOSTS` in `platforms.py` (backend) *and* the mirror in
   `app.js` (badge), add an inline SVG icon in `index.html`, set its `kind` (video/audio), and
   confirm yt-dlp supports it. If audio-only, ensure `video_options` is empty.

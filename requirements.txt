@@ -5,3 +5,5 @@ yt-dlp-ejs
 httpx
 mutagen
 spotipy
+pywidevine
+pycryptodome

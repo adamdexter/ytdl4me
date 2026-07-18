@@ -41,6 +41,7 @@ This project exists **solely for research and educational purposes**: studying h
 - **Quality tiers without quality loss.** Original / 1080p / 720p are produced by *selecting source streams*, never by re-encoding. ffmpeg only merges and remuxes with stream copy — the video bits are exactly what the platform served. Smaller tiers stay small because yt-dlp prefers efficient codecs (VP9/AV1) at each resolution.
 - **Honest "best" audio.** "Original (best quality)" is a bit-exact copy of the source audio stream in its native container (Opus or M4A). The sources are already lossy, so we deliberately don't offer FLAC/WAV — it would triple the file size and add zero quality.
 - **MP3 tiers.** 320 / 256 / 192 / 128 kbps CBR via LAME, with metadata and cover art embedded — for players that need MP3.
+- **Fast SoundCloud downloads (including DRM tracks).** Progressive HTTP is preferred when available; otherwise segments are fetched concurrently. Label/Go tracks that only offer Widevine `ctr-encrypted-hls` are unlocked via a short license step + CENC decrypt (same class of pipeline as online SC converters), so a ~4-minute track typically finishes in a few seconds at full quality instead of failing or crawling at realtime.
 - **Spotify, explained honestly.** Spotify streams are DRM-protected and cannot be ripped directly. Like spotDL, ytdl4me reads the track's *public metadata* (artist, title, artwork), finds the best matching audio on YouTube, and downloads that. Quality depends on the match; single tracks only in v1.
 - **Live progress.** Per-job progress with speed and ETA; the file auto-downloads in your browser when ready.
 - **Unlisted sharing.** Set `ACCESS_KEY` and share a link with the token in its fragment — friends click and go, the bare URL stays gated, and the tool is kept out of search engines and AI crawlers. See [Sharing it (unlisted)](#sharing-it-unlisted).
@@ -107,6 +108,8 @@ All variables are optional. See [.env.example](.env.example).
 | `COOKIES_B64` | unset | Base64 of a `cookies.txt` — use this instead of `COOKIES_FILE` on hosts where you can't mount a file (Railway, Fly) |
 | `COOKIES_CONTENT` | unset | Raw `cookies.txt` contents (alternative to `COOKIES_B64`) |
 | `COOKIES_STATE_FILE` | unset | Path on a **persistent volume**. Seeded once from the cookie vars above, then yt-dlp's rotated cookies are written back after every run so the YouTube session self-renews instead of going stale. Needs a real volume (e.g. a Railway volume at `/state`). |
+| `WIDEVINE_DEVICE_FILE` | unset | Path to a pywidevine `.wvd` used for SoundCloud DRM tracks. Optional — if unset, a public L3 device is cached on first DRM download. |
+| `WIDEVINE_DEVICE_B64` | unset | Base64 of a `.wvd` (alternative to `WIDEVINE_DEVICE_FILE` for hosts that only support env vars). |
 
 ## Sharing it (unlisted)
 

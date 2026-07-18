@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import yt_dlp
-from yt_dlp.utils import sanitize_filename
+from yt_dlp.utils import determine_protocol, sanitize_filename
 
 from .jobs import JobStore
 
@@ -115,6 +115,11 @@ _FORMAT_SPECS = {
     "720p": "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b",
 }
 
+# Some SoundCloud tracks expose direct progressive HTTP media in addition to
+# HLS. Prefer the direct file so downloads run at network speed instead of
+# behaving like a realtime stream, while keeping HLS as a fallback.
+_SOUNDCLOUD_AUDIO_FORMAT = "bestaudio[protocol=http]/bestaudio[protocol=https]/bestaudio"
+
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -187,6 +192,7 @@ def build_ydl_opts(
     progress_hook=None,
     pp_hook=None,
     filename_stem: str | None = None,
+    platform: str | None = None,
 ) -> dict:
     if filename_stem:
         stem = sanitize_filename(filename_stem).replace("%", "%%")
@@ -214,7 +220,9 @@ def build_ydl_opts(
         # into whatever container fits (mp4 / webm / mkv).
         opts["format"] = _FORMAT_SPECS[option_id]
     elif option_id in AUDIO_OPTION_IDS:
-        opts["format"] = "bestaudio/b"
+        opts["format"] = (
+            _SOUNDCLOUD_AUDIO_FORMAT if platform == "soundcloud" else "bestaudio/b"
+        )
         opts["writethumbnail"] = True
         if option_id == "audio_best":
             # Bit-exact copy of the source stream into its native container.
@@ -253,6 +261,15 @@ def _probe_opts() -> dict:
 
 def probe(url: str, platform: str) -> dict:
     """Blocking metadata probe (call via asyncio.to_thread)."""
+    # SoundCloud: custom client handles progressive + Widevine DRM tracks that
+    # yt-dlp refuses (ctr-/cbc-encrypted-hls).
+    if platform == "soundcloud":
+        from . import soundcloud as sc
+        try:
+            return sc.probe(url)
+        except sc.SoundCloudError as exc:
+            raise ProbeError(str(exc)) from exc
+
     info = _extract(url)
     formats = info.get("formats") or ([info] if info.get("url") else [])
 
@@ -264,7 +281,7 @@ def probe(url: str, platform: str) -> dict:
         kind = "video" if _pick_video(formats) else "audio"
 
     duration = float(info["duration"]) if info.get("duration") else None
-    best_audio = _pick_audio(formats)
+    best_audio = _pick_audio(formats, prefer_direct=platform == "soundcloud")
 
     payload = {
         "platform": platform,
@@ -326,13 +343,29 @@ def _pick_video(formats: list[dict], cap: int | None = None) -> dict | None:
     return None
 
 
-def _pick_audio(formats: list[dict]) -> dict | None:
+def _is_audio_only(f: dict) -> bool:
+    if f.get("acodec") in (None, "none"):
+        return False
+    if f.get("vcodec") not in (None, "none"):
+        return False
+    return True
+
+
+def _format_protocol(f: dict) -> str | None:
+    try:
+        return f.get("protocol") or determine_protocol(f)
+    except Exception:
+        return f.get("protocol")
+
+
+def _pick_audio(formats: list[dict], prefer_direct: bool = False) -> dict | None:
+    if prefer_direct:
+        for f in reversed(formats):
+            if _is_audio_only(f) and _format_protocol(f) in ("http", "https"):
+                return f
     for f in reversed(formats):
-        if f.get("acodec") in (None, "none"):
-            continue
-        if f.get("vcodec") not in (None, "none"):
-            continue  # combined format, not a pure audio stream
-        return f
+        if _is_audio_only(f):
+            return f
     return None
 
 
@@ -460,8 +493,17 @@ def run_download(
     job_dir: str,
     filename_stem: str | None = None,
     tags: dict | None = None,
+    platform: str | None = None,
 ) -> None:
     """Blocking download (call via asyncio.to_thread). Raises on failure."""
+    if platform == "soundcloud":
+        from . import soundcloud as sc
+        try:
+            sc.run_download(store, job_id, url, option_id, job_dir, filename_stem)
+        except sc.SoundCloudError as exc:
+            raise DownloadFailed(str(exc)) from exc
+        return
+
     holder: dict = {}
 
     def progress_hook(d: dict) -> None:
@@ -496,7 +538,9 @@ def run_download(
         except Exception:
             pass
 
-    opts = build_ydl_opts(option_id, job_dir, progress_hook, pp_hook, filename_stem)
+    opts = build_ydl_opts(
+        option_id, job_dir, progress_hook, pp_hook, filename_stem, platform
+    )
     store.update(job_id, status="downloading")
     try:
         with _cookies_copy() as cookies:
@@ -577,8 +621,9 @@ def friendly_error(exc: BaseException) -> str:
                 "(common on cloud IPs). Add browser cookies — see the README "
                 "\"YouTube bot check\" section — and try again.")
     if "drm" in lower:
-        return ("This track is DRM-protected by the platform — it's only offered "
-                "as an encrypted stream, so it can't be downloaded.")
+        return ("This track uses platform DRM that couldn't be unlocked on this "
+                "server. For SoundCloud, ensure a Widevine device is available "
+                "(WIDEVINE_DEVICE_FILE / WIDEVINE_DEVICE_B64) and try again.")
     if "private" in lower:
         return "That video is private."
     if "members-only" in lower or "join this channel" in lower:
