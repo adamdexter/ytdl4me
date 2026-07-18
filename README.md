@@ -28,7 +28,7 @@ This project exists **solely for research and educational purposes**: studying h
 
 **Platform terms.** The terms of service of YouTube, Vimeo, SoundCloud, and Spotify generally prohibit unauthorized downloading — in many cases *even for content that is freely licensed*. Using this tool against those platforms may breach their terms regardless of copyright status. Reviewing and complying with the applicable terms is **your responsibility**.
 
-**Spotify.** This tool never touches Spotify's DRM-protected streams and does not circumvent any technical protection measure. It reads a track's *public metadata* (artist, title, artwork) and downloads the closest matching audio from YouTube — the same approach as spotDL. Everything above about copyright and platform terms applies to that YouTube download.
+**Spotify.** This tool does not touch Spotify's DRM-protected streams. It reads a track's *public metadata* (artist, title, artwork) and downloads the closest matching audio from YouTube — the same approach as spotDL. Everything above about copyright and platform terms applies to that YouTube download.
 
 **Jurisdiction.** Copyright and private-copying law varies by country. What is lawful in one jurisdiction may be infringement in another. Know your local law before using this tool.
 

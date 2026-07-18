@@ -205,8 +205,8 @@ For Spotify jobs the download target is the matched YouTube URL, but tag the out
 
 ### Spotify (`spotify.py`)
 
-Spotify streams are DRM-protected; the standard approach (as used by spotDL) is: read the
-track's public metadata, then download the best matching audio from YouTube.
+Spotify streams are DRM-protected; the standard approach (as used by spotDL) for now is: read the
+track's public metadata, then download the best matching audio from YouTube. In the future, the goal is to figure out a way to download directly from Spotify.
 
 - `resolve_track(url) -> {"artist", "title", "thumbnail", "duration", "search_query"}`:
   fetch `https://open.spotify.com/oembed?url=<url>` via httpx (title + thumbnail), and
