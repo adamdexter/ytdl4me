@@ -576,6 +576,9 @@ def friendly_error(exc: BaseException) -> str:
         return ("YouTube is asking this server to sign in to prove it's not a bot "
                 "(common on cloud IPs). Add browser cookies — see the README "
                 "\"YouTube bot check\" section — and try again.")
+    if "drm" in lower:
+        return ("This track is DRM-protected by the platform — it's only offered "
+                "as an encrypted stream, so it can't be downloaded.")
     if "private" in lower:
         return "That video is private."
     if "members-only" in lower or "join this channel" in lower:
