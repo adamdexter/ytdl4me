@@ -72,7 +72,11 @@ docker run -d --name ytdl4me \
 
 ### Local development (venv)
 
-Requires Python 3.12+ and `ffmpeg` on your PATH.
+Requires Python 3.12+, `ffmpeg`, and [Deno](https://deno.com) on your PATH. Deno is the
+JavaScript runtime yt-dlp uses (together with the `yt-dlp-ejs` dependency) to solve
+YouTube's signature challenge — without it YouTube returns no downloadable formats. The
+Docker image installs Deno for you; only local venv runs need it installed manually
+(`curl -fsSL https://deno.land/install.sh | sh`).
 
 ```bash
 python3.12 -m venv .venv
@@ -180,6 +184,14 @@ Then set that string as `COOKIES_B64` in the service's variables and redeploy. (
 ```
 
 **Verify it loaded:** `GET /api/health` returns `"cookies_configured": true` once cookies are in place. Cookies expire — if the bot error returns after a few weeks, re-export and update the variable.
+
+### YouTube: "No video formats found" / "n challenge solving failed"
+
+Separate from the bot check: yt-dlp needs a JavaScript runtime to solve YouTube's
+signature challenge, or every real format is dropped and you get "No video formats found."
+The Docker image ships [Deno](https://deno.com) and the `yt-dlp-ejs` package to handle
+this automatically. If you run locally in a venv, install Deno
+(`curl -fsSL https://deno.land/install.sh | sh`) so it's on your PATH.
 
 ## Legal
 
