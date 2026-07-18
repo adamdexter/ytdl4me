@@ -1,0 +1,23 @@
+# fly.toml — Fly.io app configuration for ytdl4me
+# Rename the app before `fly launch` if the name is taken.
+
+app = "ytdl4me"
+primary_region = "iad"
+
+[build]
+
+[env]
+  DOWNLOAD_DIR = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+# Downloads are large and long-running; 1 GB RAM is a comfortable floor.
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "1gb"

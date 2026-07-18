@@ -1,0 +1,16 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+downloads/
+.env
+.env.*
+!.env.example
+.DS_Store
+Dockerfile
+docker-compose.yml
+.dockerignore
+fly.toml
+README.md
+SPEC.md

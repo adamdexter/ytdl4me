@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="Download video and audio from YouTube, Vimeo, SoundCloud, and Spotify — self-hosted, for personal and research use.">
+  <title>ytdl4me</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23617dff' d='M12 2a1.3 1.3 0 0 1 1.3 1.3v8.06l2.78-2.78a1.3 1.3 0 1 1 1.84 1.84l-5 5a1.3 1.3 0 0 1-1.84 0l-5-5a1.3 1.3 0 1 1 1.84-1.84l2.78 2.78V3.3A1.3 1.3 0 0 1 12 2Zm-8 14.7A1.3 1.3 0 0 1 5.3 18v1.4h13.4V18a1.3 1.3 0 1 1 2.6 0v2.7A1.3 1.3 0 0 1 20 22H4a1.3 1.3 0 0 1-1.3-1.3V18A1.3 1.3 0 0 1 4 16.7Z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+  <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="icon-logo" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 2a1.3 1.3 0 0 1 1.3 1.3v8.06l2.78-2.78a1.3 1.3 0 1 1 1.84 1.84l-5 5a1.3 1.3 0 0 1-1.84 0l-5-5a1.3 1.3 0 1 1 1.84-1.84l2.78 2.78V3.3A1.3 1.3 0 0 1 12 2Zm-8 14.7A1.3 1.3 0 0 1 5.3 18v1.4h13.4V18a1.3 1.3 0 1 1 2.6 0v2.7A1.3 1.3 0 0 1 20 22H4a1.3 1.3 0 0 1-1.3-1.3V18A1.3 1.3 0 0 1 4 16.7Z"/>
+    </symbol>
+    <symbol id="icon-youtube" viewBox="0 0 24 24">
+      <path fill="#FF0000" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814z"/>
+      <path fill="#fff" d="M9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+    </symbol>
+    <symbol id="icon-vimeo" viewBox="0 0 24 24">
+      <path fill="#1AB7EA" d="M23.977 6.416c-.105 2.338-1.739 5.543-4.894 9.609-3.268 4.247-6.026 6.37-8.29 6.37-1.409 0-2.578-1.294-3.553-3.881L5.322 11.4C4.603 8.816 3.834 7.522 3.01 7.522c-.179 0-.806.378-1.881 1.132L0 7.197c1.185-1.044 2.351-2.084 3.501-3.128C5.08 2.701 6.266 1.984 7.055 1.91c1.867-.18 3.016 1.1 3.447 3.838.465 2.953.789 4.789.971 5.507.539 2.45 1.131 3.674 1.776 3.674.502 0 1.256-.796 2.265-2.385 1.004-1.589 1.54-2.797 1.612-3.628.144-1.371-.395-2.061-1.614-2.061-.574 0-1.167.121-1.777.391 1.186-3.868 3.434-5.757 6.762-5.637 2.473.06 3.628 1.664 3.48 4.797z"/>
+    </symbol>
+    <symbol id="icon-soundcloud" viewBox="0 0 24 24">
+      <g fill="#FF5500">
+        <rect x="0" y="13.6" width="1.7" height="5.6" rx=".85"/>
+        <rect x="2.7" y="11.8" width="1.7" height="7.4" rx=".85"/>
+        <rect x="5.4" y="10" width="1.7" height="9.2" rx=".85"/>
+        <rect x="8.1" y="11" width="1.7" height="8.2" rx=".85"/>
+        <path d="M11.2 8.65a5.65 5.65 0 0 1 5.4-3.35 5.75 5.75 0 0 1 5.57 4.53A3.75 3.75 0 0 1 20.9 19.2h-8.85a.85.85 0 0 1-.85-.85z"/>
+      </g>
+    </symbol>
+    <symbol id="icon-spotify" viewBox="0 0 24 24">
+      <path fill="#1DB954" d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.08 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z"/>
+    </symbol>
+    <symbol id="icon-video" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M4 5h10a2 2 0 0 1 2 2v1.6l3.55-2.07A1 1 0 0 1 21 7.4v9.2a1 1 0 0 1-1.45.87L16 15.4V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/>
+    </symbol>
+    <symbol id="icon-audio" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/>
+    </symbol>
+  </svg>
+
+  <main class="wrap">
+    <header class="hero">
+      <div class="brand">
+        <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#icon-logo"></use></svg></span>
+        <h1>ytdl4me</h1>
+      </div>
+      <p class="tagline">Grab video &amp; audio from YouTube, Vimeo, SoundCloud, and Spotify — straight from your own server.</p>
+
+      <form id="fetch-form" class="inputbar" autocomplete="off">
+        <span id="platform-badge" class="badge" hidden></span>
+        <input id="url-input" name="url" type="text" inputmode="url" enterkeyhint="go"
+               placeholder="Paste a link — YouTube, Vimeo, SoundCloud, Spotify"
+               spellcheck="false" autocapitalize="off" aria-label="Media URL">
+        <button id="fetch-btn" class="btn btn-primary" type="submit">
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="btn-label">Fetch</span>
+        </button>
+      </form>
+      <p id="fetch-error" class="error-text" role="alert" hidden></p>
+    </header>
+
+    <section id="probe-section" aria-label="Media details" hidden>
+      <article id="probe-card" class="card probe"></article>
+    </section>
+
+    <section id="downloads-section" aria-label="Downloads" hidden>
+      <h2 class="section-title">Downloads</h2>
+      <ul id="downloads-list" class="dl-list"></ul>
+    </section>
+
+    <footer class="footer">
+      <p>Personal / research use only. Respect creators and platform terms.</p>
+    </footer>
+  </main>
+
+  <dialog id="key-modal" class="modal" aria-labelledby="key-title">
+    <form id="key-form">
+      <h3 id="key-title">Access key required</h3>
+      <p class="modal-text">This server is protected. Enter the access key to continue.</p>
+      <p id="key-hint" class="error-text" hidden>That key didn&rsquo;t work — try again.</p>
+      <input id="key-input" type="password" autocomplete="current-password"
+             placeholder="Access key" aria-label="Access key">
+      <div class="modal-actions">
+        <button type="button" id="key-cancel" class="btn btn-ghost">Cancel</button>
+        <button type="submit" class="btn btn-primary">Unlock</button>
+      </div>
+    </form>
+  </dialog>
+
+  <noscript><p class="error-text noscript">ytdl4me needs JavaScript to run.</p></noscript>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

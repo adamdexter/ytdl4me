@@ -1,0 +1,14 @@
+services:
+  ytdl4me:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - downloads:/data
+    restart: unless-stopped
+
+volumes:
+  downloads:
