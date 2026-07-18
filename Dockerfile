@@ -21,13 +21,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY server/ server/
 COPY static/ static/
 
-RUN useradd --create-home app \
-    && mkdir -p /data \
-    && chown -R app:app /data /app
+RUN mkdir -p /data /state
 
 ENV DOWNLOAD_DIR=/data
 
-USER app
+# Runs as root so a mounted persistent volume (e.g. Railway at /state, for the
+# self-renewing cookie file) is writable without an entrypoint chown dance. This
+# is a single-purpose container; the app never shells out with user input.
 
 EXPOSE 8000
 

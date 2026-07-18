@@ -110,6 +110,26 @@
     },
   };
 
+  // "Unlisted link" access: a share link carries the access token in its
+  // fragment (#key=…, not sent to the server / logs) or query (?key=). Store it
+  // and strip it from the address bar so friends just click and go, while the
+  // bare URL and crawlers get nothing usable.
+  function consumeKeyFromUrl() {
+    try {
+      const fromHash = new URLSearchParams(location.hash.replace(/^#/, ""));
+      const fromQuery = new URLSearchParams(location.search);
+      const token =
+        fromHash.get("key") || fromHash.get("k") ||
+        fromQuery.get("key") || fromQuery.get("k") || "";
+      if (token) {
+        keyStore.set(token);
+        history.replaceState(null, "", location.pathname);
+      }
+    } catch {
+      /* malformed URL — ignore */
+    }
+  }
+
   class AuthCancelled extends Error {
     constructor() {
       super("Access key required.");
@@ -546,6 +566,7 @@
 
   // ----------------------------------------------------------------- wire up
 
+  consumeKeyFromUrl();
   fetchForm.addEventListener("submit", onFetchSubmit);
   urlInput.addEventListener("input", updateBadge);
   updateBadge();

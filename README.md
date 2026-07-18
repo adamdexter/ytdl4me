@@ -101,6 +101,24 @@ All variables are optional. See [.env.example](.env.example).
 | `COOKIES_FILE` | unset | Path to a Netscape-format `cookies.txt` passed to yt-dlp (see troubleshooting) |
 | `COOKIES_B64` | unset | Base64 of a `cookies.txt` — use this instead of `COOKIES_FILE` on hosts where you can't mount a file (Railway, Fly) |
 | `COOKIES_CONTENT` | unset | Raw `cookies.txt` contents (alternative to `COOKIES_B64`) |
+| `COOKIES_STATE_FILE` | unset | Path on a **persistent volume**. Seeded once from the cookie vars above, then yt-dlp's rotated cookies are written back after every run so the YouTube session self-renews instead of going stale. Needs a real volume (e.g. a Railway volume at `/state`). |
+
+## Sharing it (unlisted)
+
+The app is an *unlisted* tool, not a public one. Set `ACCESS_KEY` to a long random
+string, then share a link with the token in its fragment:
+
+```
+https://your-app.example/#key=YOUR_ACCESS_KEY
+```
+
+Anyone who opens that link is unlocked automatically (the token is stored in their browser
+and stripped from the address bar) — no password prompt. Someone who hits the bare URL
+can't do anything. The token lives in the URL **fragment**, so it isn't sent to the server
+or written to access logs. The app also ships a `robots.txt`, a `noindex` meta tag, and an
+`X-Robots-Tag` header to keep it out of search engines and AI crawlers — but that only
+deters well-behaved bots, so treat the link itself as the secret and don't post it
+publicly. Rotate `ACCESS_KEY` if a link leaks.
 
 ## Deployment
 

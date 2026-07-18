@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import tempfile
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -21,35 +22,69 @@ from yt_dlp.utils import sanitize_filename
 from .jobs import JobStore
 
 
-def _resolve_cookies_file() -> str | None:
-    """Locate a Netscape cookies.txt for yt-dlp.
-
-    Priority: COOKIES_FILE (a path, e.g. a Docker bind mount) > COOKIES_B64
-    (base64 of a cookies.txt) > COOKIES_CONTENT (raw cookies.txt). The env-var
-    forms exist for hosts like Railway/Fly where you can't easily mount a file:
-    paste the cookies into a variable and we materialise it to a private temp
-    file (0600) for the process lifetime.
-    """
-    path = os.environ.get("COOKIES_FILE")
-    if path:
-        return path
-
-    data: bytes | None = None
+def _read_seed_cookies() -> bytes | None:
+    """Bootstrap cookie bytes from COOKIES_B64 / COOKIES_CONTENT / COOKIES_FILE."""
     b64 = os.environ.get("COOKIES_B64")
-    raw = os.environ.get("COOKIES_CONTENT")
     if b64:
         try:
-            data = base64.b64decode(b64.strip(), validate=True)
+            return base64.b64decode(b64.strip(), validate=True)
         except (binascii.Error, ValueError):
-            data = None
-    elif raw:
-        data = raw.encode("utf-8")
-    if not data:
-        return None
+            return None
+    raw = os.environ.get("COOKIES_CONTENT")
+    if raw:
+        return raw.encode("utf-8")
+    path = os.environ.get("COOKIES_FILE")
+    if path:
+        try:
+            with open(path, "rb") as f:
+                return f.read()
+        except OSError:
+            return None
+    return None
 
+
+def _resolve_cookies() -> tuple[str | None, bool]:
+    """Locate the Netscape cookies.txt for yt-dlp and whether to self-renew it.
+
+    With COOKIES_STATE_FILE set (a path on a *persistent* volume), cookies live
+    there and yt-dlp's rotated writeback is persisted after each run, so the
+    YouTube session renews itself instead of going stale. The state file is
+    seeded once from COOKIES_B64/COOKIES_CONTENT/COOKIES_FILE.
+
+    Without it: an explicit COOKIES_FILE path is used read-only (e.g. a Docker
+    bind mount), else COOKIES_B64/COOKIES_CONTENT is materialised to a private
+    temp file (0600) for the process lifetime. Returns (path_or_None, renewing).
+    """
+    state = os.environ.get("COOKIES_STATE_FILE")
+    if state:
+        state_path = os.path.abspath(state)
+        try:
+            os.makedirs(os.path.dirname(state_path) or ".", exist_ok=True)
+        except OSError:
+            pass
+        if not (os.path.isfile(state_path) and os.path.getsize(state_path) > 0):
+            seed = _read_seed_cookies()
+            if seed:
+                try:
+                    with open(state_path, "wb") as f:
+                        f.write(seed)
+                    os.chmod(state_path, 0o600)
+                except OSError:
+                    pass
+        if os.path.isfile(state_path) and os.path.getsize(state_path) > 0:
+            return state_path, True
+        return None, False
+
+    path = os.environ.get("COOKIES_FILE")
+    if path:
+        return path, False
+
+    seed = _read_seed_cookies()  # COOKIES_B64 / COOKIES_CONTENT only here
+    if not seed:
+        return None, False
     fd, tmp = tempfile.mkstemp(prefix="ytdl4me-cookiesrc-", suffix=".txt")
     with os.fdopen(fd, "wb") as f:
-        f.write(data)
+        f.write(seed)
     os.chmod(tmp, 0o600)
 
     @atexit.register
@@ -59,10 +94,11 @@ def _resolve_cookies_file() -> str | None:
         except OSError:
             pass
 
-    return tmp
+    return tmp, False
 
 
-COOKIES_FILE = _resolve_cookies_file()
+COOKIES_FILE, COOKIES_RENEW = _resolve_cookies()
+_cookie_lock = threading.Lock()
 
 PLAYLIST_ERROR = (
     "Playlists aren't supported yet — paste a link to a single video/track."
@@ -89,26 +125,43 @@ def _cookies_copy():
     yt-dlp rewrites the cookie file when a YoutubeDL context exits, so pointing
     concurrent probes/downloads at the shared file corrupts it (no lock, no
     atomic rename) and a read-only mount (e.g. Docker ":ro") raises on exit.
-    Each YoutubeDL gets its own throwaway copy instead."""
+    Each YoutubeDL gets its own throwaway copy instead.
+
+    When renewing, the (rotated) copy is atomically written back to the state
+    file under a lock so the session stays fresh across runs and restarts; the
+    temp lives beside the state file so the replace is same-filesystem."""
     if not COOKIES_FILE:
         yield None
         return
-    fd, path = tempfile.mkstemp(prefix="ytdl4me-cookies-", suffix=".txt")
+    tmp_dir = os.path.dirname(COOKIES_FILE) if COOKIES_RENEW else None
+    fd, path = tempfile.mkstemp(prefix="ytdl4me-cookies-", suffix=".txt", dir=tmp_dir)
     try:
-        try:
-            with os.fdopen(fd, "wb") as tmp, open(COOKIES_FILE, "rb") as src:
-                shutil.copyfileobj(src, tmp)
-        except OSError:
-            # Unreadable/missing cookie file: proceed without cookies rather
-            # than failing every request.
-            yield None
-            return
-        yield path
-    finally:
+        with os.fdopen(fd, "wb") as tmp, open(COOKIES_FILE, "rb") as src:
+            shutil.copyfileobj(src, tmp)
+    except OSError:
+        # Unreadable/missing cookie file: proceed without cookies rather than
+        # failing every request.
         try:
             os.remove(path)
         except OSError:
             pass
+        yield None
+        return
+    try:
+        yield path
+    finally:
+        if COOKIES_RENEW and os.path.isfile(path) and os.path.getsize(path) > 0:
+            with _cookie_lock:
+                try:
+                    os.replace(path, COOKIES_FILE)  # persist rotated cookies
+                    path = None
+                except OSError:
+                    pass
+        if path is not None:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 
 class ProbeError(Exception):

@@ -125,7 +125,14 @@ async def _access_key_middleware(request: Request, call_next):
         )
         if not secrets.compare_digest(supplied.encode(), ACCESS_KEY.encode()):
             return _error(401, "Invalid or missing access key.")
-    return await call_next(request)
+    response = await call_next(request)
+    # Keep the tool out of search engines and AI crawlers (defence in depth
+    # alongside robots.txt and the page's noindex meta). It's an unlisted tool,
+    # not a public one.
+    response.headers["X-Robots-Tag"] = (
+        "noindex, nofollow, noarchive, nosnippet, noai, noimageai"
+    )
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +155,7 @@ async def api_health():
         "yt_dlp_version": YT_DLP_VERSION,
         "auth_required": bool(ACCESS_KEY),
         "cookies_configured": bool(downloader.COOKIES_FILE),
+        "cookies_renewing": bool(downloader.COOKIES_RENEW),
     }
 
 
