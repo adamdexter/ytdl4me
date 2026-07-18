@@ -5,16 +5,23 @@ description: Build, launch, and drive ytdl4me end-to-end to verify changes at th
 
 # Verifying ytdl4me
 
+See `CLAUDE.md` for architecture, the Railway ops runbook, and the "three YouTube walls".
+
 ## Launch
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # once
+curl -fsSL https://deno.land/install.sh | sh                         # once — YouTube needs a JS runtime
+export PATH="$HOME/.deno/bin:$PATH"
 .venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8741 &
-curl -s http://127.0.0.1:8741/api/health   # {"status":"ok",...}
+curl -s http://127.0.0.1:8741/api/health   # {"status":"ok","cookies_configured":...,"cookies_renewing":...}
 ```
 
 Startup takes ~3 s (yt-dlp import) — retry the health check once before assuming failure.
-For auth flows, run a second instance: `ACCESS_KEY=<key> ... --port 8742`.
+**YouTube/Spotify need Deno on PATH** (else "No video formats found") **and cookies** (else
+"not a bot"): pass `COOKIES_FILE=/path/cookies.txt`. SoundCloud/Vimeo need neither.
+For auth/unlisted flows, run with `ACCESS_KEY=<key> ...` (a second instance on `--port 8742`).
+To exercise self-renewing cookies, also set `COOKIES_STATE_FILE=/tmp/state/cookies.txt`.
 
 ## Drive — API surface
 
@@ -42,11 +49,19 @@ Playwright (chromium) against the running server; key selectors:
 Use `colorScheme: "dark"`, `acceptDownloads: true`; assert exactly ONE `download` event
 per job (auto-click-once guard) and zero pageerrors.
 
+**Unlisted access flow** (when `ACCESS_KEY` is set): visiting `/#key=<KEY>` must auto-store
+the token (localStorage `ytdl4me.accessKey`), strip the fragment, and let a probe through
+with no modal; the bare URL must show `#key-modal[open]` on fetch. Verify `/robots.txt`
+disallows all, and responses carry `X-Robots-Tag: noindex`.
+
 ## Gotchas
 
-- YouTube may serve "confirm you're not a bot" from datacenter IPs; local residential
-  runs are fine. If it appears, set `COOKIES_FILE`.
+- **YouTube "not a bot"** (datacenter IPs) → cookies missing/expired; set `COOKIES_FILE`
+  locally. **YouTube "No video formats found"** → Deno not on PATH / `yt-dlp-ejs` missing.
+- When YouTube breaks extraction after a player change, the fix is usually
+  `pip install -U yt-dlp yt-dlp-ejs` + redeploy — not a code bug.
 - MP3 size estimates exclude embedded cover art, so actual files run larger — not a bug.
 - The Spotify path downloads the matched YouTube audio; titles come from Spotify's
   oEmbed/embed page. If Spotify markup changes, `server/spotify.py` fallbacks are the
   first place to look.
+- Live deployment verification (Railway) is in `CLAUDE.md`; the container runs as root.

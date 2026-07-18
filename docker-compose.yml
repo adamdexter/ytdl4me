@@ -6,9 +6,16 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      # Self-renewing cookies: yt-dlp's rotated YouTube session is persisted to
+      # the "state" volume so it doesn't go stale. Harmless if you provide no
+      # cookies. Seed cookies via COOKIES_B64 / COOKIES_FILE in .env.
+      - COOKIES_STATE_FILE=/state/cookies.txt
     volumes:
       - downloads:/data
+      - state:/state
     restart: unless-stopped
 
 volumes:
   downloads:
+  state:

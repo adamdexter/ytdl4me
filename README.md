@@ -43,7 +43,10 @@ This project exists **solely for research and educational purposes**: studying h
 - **MP3 tiers.** 320 / 256 / 192 / 128 kbps CBR via LAME, with metadata and cover art embedded — for players that need MP3.
 - **Spotify, explained honestly.** Spotify streams are DRM-protected and cannot be ripped directly. Like spotDL, ytdl4me reads the track's *public metadata* (artist, title, artwork), finds the best matching audio on YouTube, and downloads that. Quality depends on the match; single tracks only in v1.
 - **Live progress.** Per-job progress with speed and ETA; the file auto-downloads in your browser when ready.
-- **Optional access key.** Set `ACCESS_KEY` and the API requires it — sensible for anything internet-facing.
+- **Unlisted sharing.** Set `ACCESS_KEY` and share a link with the token in its fragment — friends click and go, the bare URL stays gated, and the tool is kept out of search engines and AI crawlers. See [Sharing it (unlisted)](#sharing-it-unlisted).
+- **Self-renewing cookies.** With a persistent volume, yt-dlp's rotated YouTube session is written back after every run, so cookies you provide keep renewing themselves instead of going stale. See [`COOKIES_STATE_FILE`](#configuration).
+- **YouTube-ready out of the box.** The image bundles [Deno](https://deno.com) + `yt-dlp-ejs` to solve YouTube's JavaScript signature challenge — no extra setup.
+- **Hardened for exposure.** Per-IP rate limiting, an active-job cap, SSRF and path-traversal guards, and a constant-time key check.
 - **Self-cleaning.** Job files are temporary and deleted after `FILE_TTL_MINUTES` (default 60).
 
 ## Quickstart
@@ -96,6 +99,8 @@ All variables are optional. See [.env.example](.env.example).
 | `DOWNLOAD_DIR` | `<repo>/downloads` (`/data` in Docker) | Working directory for job files; each job gets its own subdirectory |
 | `FILE_TTL_MINUTES` | `60` | Completed job files older than this are deleted by a background task |
 | `MAX_CONCURRENT_JOBS` | `3` | Simultaneous downloads; extra jobs wait in the queue |
+| `MAX_ACTIVE_JOBS` | `MAX_CONCURRENT_JOBS × 4` | Cap on non-terminal jobs before `/api/download` returns 429 (flood guard) |
+| `RATE_LIMIT_PER_MINUTE` | `30` | Per-IP sliding-window limit on `/api/probe` and `/api/download`; `0` disables |
 | `ALLOW_ANY_SITE` | `false` | If `false`, only the four supported platforms are accepted |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | unset | Reserved for future album/playlist enumeration; unused in v1 |
 | `COOKIES_FILE` | unset | Path to a Netscape-format `cookies.txt` passed to yt-dlp (see troubleshooting) |
@@ -127,8 +132,11 @@ This app needs a real, always-on process with ffmpeg and scratch disk — i.e. a
 ### Railway (recommended)
 
 1. Push this repo to GitHub, then in [Railway](https://railway.app) create a **New Project → Deploy from GitHub repo**. Railway auto-detects the Dockerfile and builds it.
-2. In the service's **Variables**, add `ACCESS_KEY` (and anything else from the table above).
+2. In the service's **Variables**, add `ACCESS_KEY` (and anything else from the table above). For YouTube/Spotify, add `COOKIES_B64` (see [troubleshooting](#youtube-bot-check-sign-in-to-confirm-youre-not-a-bot)).
 3. Under **Settings → Networking**, generate a public domain and set the target port to **8000**.
+4. *(Optional but recommended for YouTube)* Add a **Volume** mounted at `/state` and set `COOKIES_STATE_FILE=/state/cookies.txt` so the YouTube session self-renews across restarts. The container runs as root so the volume is writable.
+
+Verify with `GET /api/health` — it reports `auth_required`, `cookies_configured`, and `cookies_renewing`.
 
 ### Fly.io
 

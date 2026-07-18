@@ -10,7 +10,7 @@ RUN apt-get update \
 # Deno is the JavaScript runtime yt-dlp uses (with yt-dlp-ejs) to solve
 # YouTube's n-signature challenge; without it YouTube returns no formats.
 COPY --from=denoland/deno:bin-2.9.3 /deno /usr/local/bin/deno
-# Writable Deno cache for the non-root user.
+# Writable Deno cache.
 ENV DENO_DIR=/tmp/deno
 
 WORKDIR /app

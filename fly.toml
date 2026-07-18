@@ -8,6 +8,14 @@ primary_region = "iad"
 
 [env]
   DOWNLOAD_DIR = "/data"
+  # Self-renewing cookies persisted to the volume below. Create it first:
+  #   fly volumes create ytdl4me_state --size 1
+  COOKIES_STATE_FILE = "/state/cookies.txt"
+
+# Persistent volume for the self-renewing cookie file (survives restarts).
+[[mounts]]
+  source = "ytdl4me_state"
+  destination = "/state"
 
 [http_service]
   internal_port = 8000

@@ -4,6 +4,14 @@ Self-hostable web app for downloading media from YouTube, Vimeo, SoundCloud, and
 (personal / research / educational use). Single Docker container: Python FastAPI backend +
 yt-dlp + ffmpeg, serving a no-build-step vanilla JS frontend.
 
+> **⚠️ This is the ORIGINAL design spec — reality has drifted.** For the current, as-built
+> system read `CLAUDE.md` (agent runbook) and `README.md`. Notable additions since this doc:
+> per-IP rate limiting + active-job cap, SSRF/path-traversal guards, a **Deno + `yt-dlp-ejs`**
+> runtime for YouTube's JS challenge, **self-renewing cookies** via `COOKIES_STATE_FILE` on a
+> persistent volume (plus `COOKIES_B64`/`COOKIES_CONTENT` env cookies), an **unlisted-link**
+> access model (token in the URL fragment) with `robots.txt`/`noindex`/`X-Robots-Tag`, and the
+> container now runs as **root** (for volume writes). This file is kept for design history.
+
 ## Guiding principles
 
 - **Never re-encode video.** Quality tiers are achieved by selecting source streams via
