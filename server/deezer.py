@@ -204,8 +204,9 @@ def probe(url: str) -> dict:
     artist = (info.get("artist") or {}).get("name")
     thumb = (info.get("album") or {}).get("cover_xl") or (info.get("album") or {}).get("cover_big")
     if os.environ.get("DEEZER_ARL"):
-        quality = "MP3 up to 320 kbps (account)"
-        best_size = int(duration * 320 * 125) if duration else None
+        # Premium accounts resolve FLAC first, then MP3_320 / MP3_128.
+        quality = "FLAC / MP3 up to 320 (account)"
+        best_size = int(duration * 900 * 125) if duration else None
     else:
         quality = "preview ~30s (set DEEZER_ARL for full)"
         best_size = int(30 * 64 * 125)
