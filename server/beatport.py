@@ -45,42 +45,139 @@ def _track_id_from_url(url: str) -> tuple[str, str]:
 
 
 def _scrape_track(url: str) -> dict:
-    """Load public track JSON from the Next.js page (needs cloudscraper for CF)."""
+    """Load public track metadata.
+
+    Order:
+    1. cloudscraper (works on residential IPs)
+    2. jina.ai reader proxy (works from many datacenter IPs when CF blocks)
+    3. URL slug fallback (artist/title-ish search terms only)
+    """
+    errors: list[str] = []
+
+    # --- 1) cloudscraper ---
     try:
         import cloudscraper
-    except ImportError as exc:
-        raise BeatportError(
-            "cloudscraper is required for Beatport (pip install cloudscraper)."
-        ) from exc
-
-    scraper = cloudscraper.create_scraper(
-        browser={"browser": "chrome", "platform": "linux", "mobile": False}
-    )
-    try:
+        scraper = cloudscraper.create_scraper(
+            browser={"browser": "chrome", "platform": "linux", "mobile": False}
+        )
         resp = scraper.get(url, timeout=45)
+        if resp.status_code == 200:
+            m = re.search(
+                r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
+                resp.text,
+                re.DOTALL,
+            )
+            if m:
+                next_data = json.loads(m.group(1))
+                track = _find_track_blob(next_data)
+                if track:
+                    return track
+            errors.append("page had no track JSON")
+        else:
+            errors.append(f"HTTP {resp.status_code}")
     except Exception as exc:
-        raise BeatportError(f"Couldn't reach Beatport: {exc}") from exc
-    if resp.status_code != 200:
-        raise BeatportError(f"Beatport returned HTTP {resp.status_code}.")
+        errors.append(f"cloudscraper: {exc}")
 
-    m = re.search(
-        r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
-        resp.text,
-        re.DOTALL,
-    )
-    if not m:
-        raise BeatportError("Couldn't parse Beatport page metadata.")
+    # --- 2) jina.ai markdown reader (bypasses many CF challenges) ---
     try:
-        next_data = json.loads(m.group(1))
-    except json.JSONDecodeError as exc:
-        raise BeatportError("Beatport page JSON was invalid.") from exc
+        track = _scrape_via_jina(url)
+        if track:
+            return track
+        errors.append("jina: no metadata")
+    except Exception as exc:
+        errors.append(f"jina: {exc}")
 
-    # Walk dehydrated React Query cache for the track object.
-    track = _find_track_blob(next_data)
-    if not track:
-        raise BeatportError("Couldn't find track data on that Beatport page.")
-    return track
+    # --- 3) slug-only fallback ---
+    try:
+        tid, slug = _track_id_from_url(url)
+        # synesthesia-original-mix → "Synesthesia Original Mix"
+        words = slug.replace("-", " ").strip()
+        title = " ".join(w.capitalize() for w in words.split())
+        return {
+            "id": int(tid) if tid.isdigit() else tid,
+            "name": title,
+            "mix_name": "",
+            "artists": [],
+            "length_ms": None,
+            "sample_url": None,
+            "isrc": None,
+            "image": {},
+            "free_downloads": [],
+            "_slug_fallback": True,
+        }
+    except Exception as exc:
+        errors.append(f"slug: {exc}")
 
+    raise BeatportError(
+        "Couldn't read that Beatport page (" + "; ".join(errors[:3]) + ")."
+    )
+
+
+def _scrape_via_jina(url: str) -> dict | None:
+    """Parse artist/title/length/cover from jina.ai's text extract of the page."""
+    raw = ac.http_get(
+        f"https://r.jina.ai/{url}",
+        headers={"User-Agent": ac.UA, "Accept": "text/plain"},
+        timeout=50,
+    )
+    text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+
+    artist = title = None
+    # Title: Froxic - Synesthesia (Original Mix) [Plasmapool] | Music & Downloads...
+    m = re.search(
+        r"^Title:\s*(.+?)\s*\|\s*Music",
+        text,
+        re.I | re.M,
+    )
+    if m:
+        head = m.group(1).strip()
+        # strip trailing [Label]
+        head = re.sub(r"\s*\[[^\]]+\]\s*$", "", head).strip()
+        if " - " in head:
+            artist, title = head.split(" - ", 1)
+        else:
+            title = head
+
+    if not artist:
+        m = re.search(r"Artists?:\s*\[([^\]]+)\]", text, re.I)
+        if m:
+            artist = m.group(1).strip()
+    if not title:
+        m = re.search(r"^#\s+(.+)$", text, re.M)
+        if m:
+            title = m.group(1).strip()
+
+    if not title:
+        return None
+
+    # Length: line then "5:37"
+    length_ms = None
+    m = re.search(r"Length:\s*\n\s*(\d+):(\d{2})", text)
+    if m:
+        length_ms = (int(m.group(1)) * 60 + int(m.group(2))) * 1000
+
+    thumb = None
+    m = re.search(
+        r"https://geo-media\.beatport\.com/image_size/\d+x\d+/[a-f0-9-]+\.jpg",
+        text,
+        re.I,
+    )
+    if m:
+        thumb = m.group(0)
+
+    tid, _slug = _track_id_from_url(url)
+    artists = [{"name": artist}] if artist else []
+    return {
+        "id": int(tid) if tid.isdigit() else tid,
+        "name": title,
+        "mix_name": "",
+        "artists": artists,
+        "length_ms": length_ms,
+        "sample_url": None,
+        "isrc": None,
+        "image": {"uri": thumb} if thumb else {},
+        "free_downloads": [],
+    }
 
 def _find_track_blob(node) -> dict | None:
     if isinstance(node, dict):
