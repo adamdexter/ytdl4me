@@ -37,6 +37,7 @@ from .downloader import (
 from .jobs import Job, JobStore
 from .platforms import detect_platform, looks_like_playlist, platform_kind
 from .spotify import SpotifyError, resolve_track
+from .yt_match import MatchError, prefers_youtube_match, resolve_track as resolve_yt_match
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -241,25 +242,41 @@ async def api_probe(request: Request, body: ProbeRequest):
             result = await asyncio.wait_for(_probe(url, platform), _PROBE_TIMEOUT)
     except asyncio.TimeoutError:
         return _error(422, "Timed out reading that link — please try again.")
-    except (ProbeError, SpotifyError) as exc:
+    except (ProbeError, SpotifyError, MatchError) as exc:
         return _error(422, str(exc))
     return result
 
 
 async def _probe(url: str, platform: str) -> dict:
     loop = asyncio.get_running_loop()
-    if platform == "spotify":
-        track = await resolve_track(url)
+    # Spotify always, and Deezer/TIDAL/Apple Music when no account token is set:
+    # resolve public metadata then probe the best YouTube audio match (spotDL-style).
+    if platform == "spotify" or prefers_youtube_match(platform):
+        if platform == "spotify":
+            track = await resolve_track(url)
+            src_name = "Spotify"
+        else:
+            track = await loop.run_in_executor(
+                _probe_executor, resolve_yt_match, platform, url,
+            )
+            src_name = track.get("source_label") or platform
+        # Use "spotify" only as the yt-dlp audio-kind flag for ytsearch probes.
         info = await loop.run_in_executor(
             _probe_executor, downloader.probe,
             f"ytsearch1:{track['search_query']}", "spotify",
         )
-        # Report Spotify's own metadata and the original Spotify URL.
         info["url"] = url
+        info["platform"] = platform
+        info["kind"] = "audio"
         for src, dst in (("title", "title"), ("artist", "uploader"),
                          ("thumbnail", "thumbnail"), ("duration", "duration")):
             if track.get(src):
                 info[dst] = track[src]
+        oq = info.get("original_quality") or "YouTube audio"
+        info["original_quality"] = f"{oq} · via YouTube match"
+        for opt in info.get("audio_options") or []:
+            if opt.get("id") == "audio_best" and opt.get("detail"):
+                opt["detail"] = f"{opt['detail']} · {src_name}→YouTube"
         return info
     return await loop.run_in_executor(_probe_executor, downloader.probe, url, platform)
 
@@ -298,22 +315,35 @@ async def _run_job(job_id: str, url: str, option_id: str,
         target_url = url
         filename_stem = None
         tags = None
-        if platform == "spotify":
-            track = await resolve_track(url)
+        # Download platform for yt-dlp path: YouTube search, not the storefront.
+        download_platform = platform
+        if platform == "spotify" or prefers_youtube_match(platform):
+            loop = asyncio.get_running_loop()
+            if platform == "spotify":
+                track = await resolve_track(url)
+                tag = "spotify"
+            else:
+                track = await loop.run_in_executor(
+                    _probe_executor, resolve_yt_match, platform, url,
+                )
+                tag = track.get("source_label") or platform
             target_url = f"ytsearch1:{track['search_query']}"
             artist, title = track.get("artist"), track.get("title")
             filename_stem = (
-                f"{artist} - {title} [spotify]" if artist else f"{title} [spotify]"
+                f"{artist} - {title} [{tag}]" if artist else f"{title} [{tag}]"
             )
             tags = {"artist": artist, "title": title}
+            # yt-dlp handles ytsearch; treat as youtube for format selection.
+            download_platform = "youtube"
         async with _job_semaphore:
             if store.get(job_id) is None:
                 return
             await asyncio.get_running_loop().run_in_executor(
                 _download_executor, downloader.run_download, store, job_id,
-                target_url, option_id, job_dir, filename_stem, tags, platform,
+                target_url, option_id, job_dir, filename_stem, tags,
+                download_platform,
             )
-    except (DownloadFailed, PlaylistError, ProbeError, SpotifyError) as exc:
+    except (DownloadFailed, PlaylistError, ProbeError, SpotifyError, MatchError) as exc:
         store.update(job_id, status="error", error=str(exc))
     except Exception as exc:  # noqa: BLE001 — job must never crash silently
         store.update(job_id, status="error", error=downloader.friendly_error(exc))

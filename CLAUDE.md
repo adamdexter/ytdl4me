@@ -62,10 +62,11 @@ Browser (static/*, vanilla JS)
 | `server/main.py` | FastAPI app, routes, auth middleware, rate limit, job orchestration, TTL cleanup, static mount, `X-Robots-Tag` header | `_access_key_middleware`, `_rate_limited`, `_run_job`, `_cleanup_loop`, `api_health/probe/download/job/file` |
 | `server/downloader.py` | yt-dlp option builders, `probe()`, `run_download()`, cookie resolution + **self-renewal**, `friendly_error()`; dispatches SoundCloud to `soundcloud.py` | `_resolve_cookies`, `_cookies_copy`, `build_ydl_opts`, `_video_options`, `_FORMAT_SPECS` |
 | `server/soundcloud.py` | SoundCloud API client: progressive / concurrent HLS / Widevine CENC DRM decrypt | `probe`, `run_download`, `_pick_stream`, `_decrypt_fragment`, `_widevine_content_key` |
-| `server/deezer.py` | Deezer Blowfish CDN download | `probe`, `run_download` |
+| `server/deezer.py` | Native Deezer Blowfish CDN (optional `DEEZER_ARL`) | `probe`, `run_download` |
 | `server/joox.py` | JOOX direct stream URLs | `probe`, `run_download` |
-| `server/tidal.py` | TIDAL streams (AES-CTR when encrypted); needs `TIDAL_ACCESS_TOKEN` | `probe`, `run_download` |
-| `server/applemusic.py` | Apple Music AAC via webplayback + Widevine; needs `APPLE_MEDIA_USER_TOKEN` | `probe`, `run_download` |
+| `server/tidal.py` | Native TIDAL streams when `TIDAL_ACCESS_TOKEN` set | `probe`, `run_download` |
+| `server/applemusic.py` | Native Apple AAC when `APPLE_MEDIA_USER_TOKEN` set | `probe`, `run_download` |
+| `server/yt_match.py` | Default path for Deezer/TIDAL/Apple without tokens: public metadata → `ytsearch1:` | `prefers_youtube_match`, `resolve_track` |
 | `server/audio_common.py` | Shared audio probe options, ffmpeg finalize, tagging | `finalize_audio`, `probe_payload` |
 | `server/jobs.py` | `Job` dataclass + thread-safe `JobStore` | `JobStore.update/get/prune` |
 | `server/platforms.py` | URL → platform detection + playlist-shape rejection | `detect_platform`, `platform_kind`, `looks_like_playlist` |
