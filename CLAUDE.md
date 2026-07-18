@@ -66,7 +66,8 @@ Browser (static/*, vanilla JS)
 | `server/joox.py` | JOOX direct stream URLs | `probe`, `run_download` |
 | `server/tidal.py` | Native TIDAL streams when `TIDAL_ACCESS_TOKEN` set | `probe`, `run_download` |
 | `server/applemusic.py` | Native Apple AAC when `APPLE_MEDIA_USER_TOKEN` set | `probe`, `run_download` |
-| `server/yt_match.py` | Default path for Deezer/TIDAL/Apple without tokens: public metadata → `ytsearch1:` | `prefers_youtube_match`, `resolve_track` |
+| `server/yt_match.py` | Public metadata resolvers for Deezer/TIDAL/Apple (no paid tokens) | `prefers_youtube_match`, `resolve_track` |
+| `server/match_sources.py` | Cascade: SoundCloud search+decrypt, else YouTube match | `find_soundcloud_match`, `download_soundcloud_match` |
 | `server/audio_common.py` | Shared audio probe options, ffmpeg finalize, tagging | `finalize_audio`, `probe_payload` |
 | `server/jobs.py` | `Job` dataclass + thread-safe `JobStore` | `JobStore.update/get/prune` |
 | `server/platforms.py` | URL → platform detection + playlist-shape rejection | `detect_platform`, `platform_kind`, `looks_like_playlist` |

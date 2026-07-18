@@ -37,6 +37,7 @@ from .downloader import (
 from .jobs import Job, JobStore
 from .platforms import detect_platform, looks_like_playlist, platform_kind
 from .spotify import SpotifyError, resolve_track
+from .match_sources import download_soundcloud_match, find_soundcloud_match
 from .yt_match import MatchError, prefers_youtube_match, resolve_track as resolve_yt_match
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -250,7 +251,7 @@ async def api_probe(request: Request, body: ProbeRequest):
 async def _probe(url: str, platform: str) -> dict:
     loop = asyncio.get_running_loop()
     # Spotify always, and Deezer/TIDAL/Apple Music when no account token is set:
-    # resolve public metadata then probe the best YouTube audio match (spotDL-style).
+    # public metadata → SoundCloud (native decrypt) if confident → else YouTube.
     if platform == "spotify" or prefers_youtube_match(platform):
         if platform == "spotify":
             track = await resolve_track(url)
@@ -260,7 +261,38 @@ async def _probe(url: str, platform: str) -> dict:
                 _probe_executor, resolve_yt_match, platform, url,
             )
             src_name = track.get("source_label") or platform
-        # Use "spotify" only as the yt-dlp audio-kind flag for ytsearch probes.
+
+        sc_hit = await loop.run_in_executor(
+            _probe_executor,
+            find_soundcloud_match,
+            track.get("artist"),
+            track.get("title"),
+            track.get("duration"),
+        )
+        if sc_hit:
+            # Probe the SC URL for real quality tiers / size estimates.
+            try:
+                info = await loop.run_in_executor(
+                    _probe_executor, downloader.probe, sc_hit["url"], "soundcloud",
+                )
+            except Exception:
+                info = None
+            if info:
+                info["url"] = url
+                info["platform"] = platform
+                info["kind"] = "audio"
+                for src, dst in (("title", "title"), ("artist", "uploader"),
+                                 ("thumbnail", "thumbnail"), ("duration", "duration")):
+                    if track.get(src):
+                        info[dst] = track[src]
+                oq = info.get("original_quality") or "SoundCloud audio"
+                info["original_quality"] = f"{oq} · via SoundCloud decrypt"
+                for opt in info.get("audio_options") or []:
+                    if opt.get("id") == "audio_best" and opt.get("detail"):
+                        opt["detail"] = f"{opt['detail']} · {src_name}→SoundCloud"
+                return info
+
+        # YouTube match fallback
         info = await loop.run_in_executor(
             _probe_executor, downloader.probe,
             f"ytsearch1:{track['search_query']}", "spotify",
@@ -315,8 +347,8 @@ async def _run_job(job_id: str, url: str, option_id: str,
         target_url = url
         filename_stem = None
         tags = None
-        # Download platform for yt-dlp path: YouTube search, not the storefront.
         download_platform = platform
+        sc_url = None
         if platform == "spotify" or prefers_youtube_match(platform):
             loop = asyncio.get_running_loop()
             if platform == "spotify":
@@ -327,18 +359,45 @@ async def _run_job(job_id: str, url: str, option_id: str,
                     _probe_executor, resolve_yt_match, platform, url,
                 )
                 tag = track.get("source_label") or platform
-            target_url = f"ytsearch1:{track['search_query']}"
             artist, title = track.get("artist"), track.get("title")
             filename_stem = (
                 f"{artist} - {title} [{tag}]" if artist else f"{title} [{tag}]"
             )
             tags = {"artist": artist, "title": title}
-            # yt-dlp handles ytsearch; treat as youtube for format selection.
-            download_platform = "youtube"
+            # Prefer SoundCloud (Widevine/progressive decrypt) when a confident
+            # full-length match exists; otherwise yt-dlp YouTube search.
+            sc_hit = await loop.run_in_executor(
+                _probe_executor,
+                find_soundcloud_match,
+                artist, title, track.get("duration"),
+            )
+            if sc_hit:
+                sc_url = sc_hit["url"]
+            else:
+                target_url = f"ytsearch1:{track['search_query']}"
+                download_platform = "youtube"
         async with _job_semaphore:
             if store.get(job_id) is None:
                 return
-            await asyncio.get_running_loop().run_in_executor(
+            loop = asyncio.get_running_loop()
+            if sc_url:
+                try:
+                    def _sc_dl():
+                        download_soundcloud_match(
+                            store, job_id, sc_url, option_id, job_dir,
+                            filename_stem=filename_stem, tags=tags,
+                        )
+                    await loop.run_in_executor(_download_executor, _sc_dl)
+                    return
+                except Exception as sc_exc:
+                    # Soft-fail to YouTube match if SC decrypt/path fails.
+                    logging.getLogger("uvicorn.error").warning(
+                        "SoundCloud match failed for %s, falling back to YouTube: %s",
+                        url, sc_exc,
+                    )
+                    target_url = f"ytsearch1:{artist} - {title}" if artist else f"ytsearch1:{title}"
+                    download_platform = "youtube"
+            await loop.run_in_executor(
                 _download_executor, downloader.run_download, store, job_id,
                 target_url, option_id, job_dir, filename_stem, tags,
                 download_platform,
@@ -347,7 +406,6 @@ async def _run_job(job_id: str, url: str, option_id: str,
         store.update(job_id, status="error", error=str(exc))
     except Exception as exc:  # noqa: BLE001 — job must never crash silently
         store.update(job_id, status="error", error=downloader.friendly_error(exc))
-
 
 @app.get("/api/jobs/{job_id}")
 async def api_job(job_id: str):
