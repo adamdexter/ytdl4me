@@ -5,6 +5,9 @@ quality tiers select source streams; ffmpeg merges with stream copy.
 """
 from __future__ import annotations
 
+import atexit
+import base64
+import binascii
 import os
 import re
 import shutil
@@ -17,7 +20,49 @@ from yt_dlp.utils import sanitize_filename
 
 from .jobs import JobStore
 
-COOKIES_FILE = os.environ.get("COOKIES_FILE") or None
+
+def _resolve_cookies_file() -> str | None:
+    """Locate a Netscape cookies.txt for yt-dlp.
+
+    Priority: COOKIES_FILE (a path, e.g. a Docker bind mount) > COOKIES_B64
+    (base64 of a cookies.txt) > COOKIES_CONTENT (raw cookies.txt). The env-var
+    forms exist for hosts like Railway/Fly where you can't easily mount a file:
+    paste the cookies into a variable and we materialise it to a private temp
+    file (0600) for the process lifetime.
+    """
+    path = os.environ.get("COOKIES_FILE")
+    if path:
+        return path
+
+    data: bytes | None = None
+    b64 = os.environ.get("COOKIES_B64")
+    raw = os.environ.get("COOKIES_CONTENT")
+    if b64:
+        try:
+            data = base64.b64decode(b64.strip(), validate=True)
+        except (binascii.Error, ValueError):
+            data = None
+    elif raw:
+        data = raw.encode("utf-8")
+    if not data:
+        return None
+
+    fd, tmp = tempfile.mkstemp(prefix="ytdl4me-cookiesrc-", suffix=".txt")
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    os.chmod(tmp, 0o600)
+
+    @atexit.register
+    def _cleanup() -> None:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+    return tmp
+
+
+COOKIES_FILE = _resolve_cookies_file()
 
 PLAYLIST_ERROR = (
     "Playlists aren't supported yet — paste a link to a single video/track."
@@ -475,8 +520,9 @@ def friendly_error(exc: BaseException) -> str:
     msg = re.sub(r"^ERROR:\s*", "", msg)
     lower = msg.lower()
     if "sign in to confirm" in lower or "not a bot" in lower:
-        return ("The source is asking for a sign-in to verify you're not a bot. "
-                "Configure COOKIES_FILE and try again.")
+        return ("YouTube is asking this server to sign in to prove it's not a bot "
+                "(common on cloud IPs). Add browser cookies — see the README "
+                "\"YouTube bot check\" section — and try again.")
     if "private" in lower:
         return "That video is private."
     if "members-only" in lower or "join this channel" in lower:

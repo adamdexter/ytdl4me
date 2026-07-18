@@ -143,7 +143,12 @@ class DownloadRequest(BaseModel):
 
 @app.get("/api/health")
 async def api_health():
-    return {"status": "ok", "yt_dlp_version": YT_DLP_VERSION}
+    return {
+        "status": "ok",
+        "yt_dlp_version": YT_DLP_VERSION,
+        "auth_required": bool(ACCESS_KEY),
+        "cookies_configured": bool(downloader.COOKIES_FILE),
+    }
 
 
 # Per-IP sliding-window rate limit for the expensive endpoints (probe/download).

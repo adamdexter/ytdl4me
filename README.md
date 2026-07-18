@@ -95,6 +95,8 @@ All variables are optional. See [.env.example](.env.example).
 | `ALLOW_ANY_SITE` | `false` | If `false`, only the four supported platforms are accepted |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | unset | Reserved for future album/playlist enumeration; unused in v1 |
 | `COOKIES_FILE` | unset | Path to a Netscape-format `cookies.txt` passed to yt-dlp (see troubleshooting) |
+| `COOKIES_B64` | unset | Base64 of a `cookies.txt` — use this instead of `COOKIES_FILE` on hosts where you can't mount a file (Railway, Fly) |
+| `COOKIES_CONTENT` | unset | Raw `cookies.txt` contents (alternative to `COOKIES_B64`) |
 
 ## Deployment
 
@@ -145,12 +147,29 @@ Anything that runs Docker (Railway, Fly.io, Render, a VPS, a Raspberry Pi at hom
 
 ## Troubleshooting
 
-### YouTube: "Sign in to confirm you're not a bot"
+### YouTube bot check: "Sign in to confirm you're not a bot"
 
-YouTube sometimes challenges requests from datacenter IPs (common on cloud hosts). Fix: give yt-dlp cookies from a logged-in browser session.
+YouTube challenges requests from datacenter IP ranges, which is where almost all cloud hosts (Railway, Fly, Render, VPS providers) live. SoundCloud and Vimeo are unaffected; Spotify is affected because it resolves tracks through a YouTube search. The fix is to give yt-dlp cookies from a logged-in browser session so YouTube treats the server as a signed-in user.
 
-1. Export cookies for `youtube.com` in Netscape format (e.g. the "Get cookies.txt LOCALLY" browser extension).
-2. Make the file available to the container and point `COOKIES_FILE` at it:
+**Export the cookies (do this once):**
+
+1. Use a **throwaway Google account**, not your main one — cookies used from a datacenter IP can get an account rate-limited or flagged.
+2. In a **private/incognito window**, sign in to that account and open <https://www.youtube.com>.
+3. With a Netscape-format cookie exporter such as the "Get cookies.txt LOCALLY" extension, export cookies for `youtube.com` to a file `cookies.txt`.
+4. **Close the private window without navigating further** — YouTube rotates the session cookie on use, which can invalidate an exported file that's still "live".
+
+**Provide the cookies to the server — pick the method that matches your host:**
+
+*Railway / Fly / any host with only environment variables* — base64-encode the file and paste it into a `COOKIES_B64` variable:
+
+```bash
+base64 -i cookies.txt | tr -d '\n'      # macOS: copy the output
+# base64 -w0 cookies.txt                # Linux equivalent
+```
+
+Then set that string as `COOKIES_B64` in the service's variables and redeploy. (Base64 avoids newline/character issues in env-var UIs. Raw contents also work via `COOKIES_CONTENT`.)
+
+*Docker / VPS with a mountable filesystem* — bind-mount the file and point `COOKIES_FILE` at it:
 
 ```yaml
 # docker-compose.yml, under the service:
@@ -160,7 +179,7 @@ YouTube sometimes challenges requests from datacenter IPs (common on cloud hosts
       - COOKIES_FILE=/data/cookies.txt
 ```
 
-Cookies expire; re-export them if the error returns. Prefer a throwaway Google account over your main one.
+**Verify it loaded:** `GET /api/health` returns `"cookies_configured": true` once cookies are in place. Cookies expire — if the bot error returns after a few weeks, re-export and update the variable.
 
 ## Legal
 
