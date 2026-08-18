@@ -54,8 +54,11 @@ Browser (static/*, vanilla JS)
 - **Never blocks the event loop:** yt-dlp / native clients are blocking; probe/download run in
   dedicated `ThreadPoolExecutor`s (`_probe_executor`, `_download_executor` in `main.py`).
   Progress hooks write to thread-safe `JobStore` under a lock.
-- **Never re-encodes video:** quality tiers pick source streams; ffmpeg only merges with
-  stream copy. Audio "Original" is a bit-exact copy; MP3 tiers transcode with libmp3lame.
+- **Video re-encodes only by explicit choice:** "Original" and the 1080p/720p MP4 tiers pick
+  source streams (H.264+AAC preferred → `.mp4`) and ffmpeg merges with stream copy. Only the
+  labeled **4K MP4 / 2K MP4** tiers (`2160p_mp4`/`1440p_mp4`) transcode — libx264 CRF 18
+  veryfast yuv420p + AAC — because YouTube has no H.264 above 1080p. Audio "Original" is a
+  bit-exact copy; MP3 tiers transcode with libmp3lame.
 - **SoundCloud is a custom client** (`server/soundcloud.py`), not yt-dlp: progressive HTTP
   first, then concurrent HLS, then Widevine `ctr-encrypted-hls` (license + pure-Python CENC
   decrypt + ffmpeg remux). yt-dlp alone reports DRM tracks as undownloadable. Device via
@@ -182,7 +185,9 @@ ACCESS_KEY=dev COOKIES_FILE=/path/to/cookies.txt \
   Playlist ZIP: pass `entries` + `zip:true` (see `docs/PLAYLISTS.md`).
   A ~20-line urllib helper (submit/poll/fetch, sends `X-Access-Key`) is the fastest driver.
 - Check outputs with `ffprobe -show_entries stream=codec_name,width,height,bit_rate`: tiers
-  must be exactly 1080/720 high; `mp3_N` must be `bit_rate=N000`; `audio_best` native codec.
+  must be exactly 1080/720 high; on YouTube the 1080p/720p tiers must be `h264` in `.mp4`
+  (stream copy); `2160p_mp4`/`1440p_mp4` must be `h264` + `yuv420p` at the tier height;
+  `mp3_N` must be `bit_rate=N000`; `audio_best` native codec.
 - UI / unlisted flow: Playwright (chromium). Assert `/#key=<KEY>` unlocks with no modal, bare
   URL shows `#key-modal[open]`, exactly one `download` event per job, zero pageerrors.
 
@@ -236,7 +241,8 @@ in headless/agent runs it fails on encrypted keys. Prefer the env-var/reseed app
 ## Extending
 
 - **Add a quality tier / change format selection:** edit `_FORMAT_SPECS` and `_video_options`
-  in `downloader.py`; keep the "never re-encode video" rule (merge/stream-copy only). Add the
+  in `downloader.py`; copy tiers stay merge/stream-copy only — a tier that transcodes must
+  say so in its label/detail (like the 4K/2K MP4 tiers, `_MP4_CONVERT_IDS`). Add the
   new `option_id` to `VIDEO_OPTION_IDS`/`AUDIO_OPTION_IDS` and render it in `renderProbe`
   (`app.js`). Verify the output resolution/bitrate with `ffprobe`.
 - **Touch SoundCloud carefully:** logic lives in `server/soundcloud.py` (not yt-dlp format
@@ -254,7 +260,8 @@ in headless/agent runs it fails on encrypted keys. Prefer the env-var/reseed app
 
 ## Invariants (don't violate)
 
-- Never re-encode video; audio "Original" stays bit-exact.
+- Never re-encode video silently: "Original" + 1080p/720p tiers are stream-copy; only the
+  explicitly labeled 4K/2K MP4 tiers transcode. Audio "Original" stays bit-exact.
 - Never pass user input to a shell; keep using the yt-dlp Python API.
 - File serving is path-traversal-guarded (`realpath` contained in the job dir) — keep it.
 - Keep the README disclaimer and `robots.txt`; this is a research/educational, unlisted tool.

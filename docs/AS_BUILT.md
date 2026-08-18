@@ -3,7 +3,7 @@
 Living record of what the system **actually does**, in roughly chronological feature order.
 Use this when hopping agents so context is not trapped in a single chat session.
 
-**Last major update:** playlist/ZIP support (`a088fe7` era) + portable agent docs.  
+**Last major update:** editing-friendly MP4 video tiers (H.264 stream-copy 1080p/720p, 4K/2K MP4 transcode).  
 **Live deploy:** https://ytdl4me-production.up.railway.app · Railway project `abundant-laughter`, service `ytdl4me`, volume `/state`.
 
 ---
@@ -86,6 +86,24 @@ Use this when hopping agents so context is not trapped in a single chat session.
 - Same input field; `looks_like_playlist` **detects** (no longer hard-rejects).
 - Probe `kind: "playlist"` + `entries[]`; download with `entries` + `zip`.
 - Details: [`PLAYLISTS.md`](PLAYLISTS.md).
+
+### Editing-friendly MP4 video tiers
+
+- **File:** `server/downloader.py` (`_FORMAT_SPECS`, `_mp4_copy_spec`, `_convert_spec`,
+  `_video_options`); playlist chips in `server/playlists.py`. No frontend change — the UI
+  renders whatever the probe returns.
+- **Why:** default `bv*+ba` gave AV1/VP9 `.webm`, which macOS/QuickTime/NLEs can't open.
+- 1080p/720p tiers prefer `avc1`+`m4a` and stream-copy into `.mp4`
+  (`merge_output_format: "mp4/mkv"` — mkv only when the codec fallback fires). The 1080p
+  tier now also appears when the *source itself* is 1080p in AV1/VP9 (before, such videos
+  offered only the unusable "Original").
+- `2160p_mp4` / `1440p_mp4` ("4K MP4"/"2K MP4"): the only transcoding tiers — YouTube has
+  no H.264 above 1080p. VP9 source preferred (faster decode than AV1) → libx264 CRF 18
+  veryfast, `yuv420p`, AAC 192k, via `FFmpegVideoConvertor` + `postprocessor_args`
+  (`videoconvertor` key). Slower; labeled as converted in the UI. Hidden when the source at
+  that height is already H.264 (e.g. Vimeo) and not offered for playlist batches.
+- "Original" unchanged: bit-exact best streams, whatever container fits; its detail now
+  names the codec + container so picking `.webm` is informed.
 
 ### Repo hygiene
 

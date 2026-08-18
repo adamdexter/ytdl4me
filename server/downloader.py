@@ -1,7 +1,10 @@
 """yt-dlp option builders, probe(), run_download() with progress hooks.
 
-Uses the yt-dlp Python API only (no subprocess). Video is never re-encoded:
-quality tiers select source streams; ffmpeg merges with stream copy.
+Uses the yt-dlp Python API only (no subprocess). Video is never re-encoded
+behind the user's back: "Original" and the 1080p/720p MP4 tiers select source
+streams and ffmpeg merges with stream copy. Only the explicitly labeled
+"4K MP4"/"2K MP4" tiers transcode (YouTube serves nothing but VP9/AV1 above
+1080p, which Macs and editors can't open — H.264 is the only editable path).
 """
 from __future__ import annotations
 
@@ -17,7 +20,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import yt_dlp
-from yt_dlp.utils import determine_protocol, sanitize_filename
+from yt_dlp.utils import determine_protocol, get_compatible_ext, sanitize_filename
 
 from .jobs import JobStore
 
@@ -104,16 +107,52 @@ PLAYLIST_ERROR = (
     "Playlists aren't supported yet — paste a link to a single video/track."
 )
 
-VIDEO_OPTION_IDS = ("original", "1080p", "720p")
+VIDEO_OPTION_IDS = ("original", "2160p_mp4", "1440p_mp4", "1080p", "720p")
 MP3_OPTION_IDS = ("mp3_320", "mp3_256", "mp3_192", "mp3_128")
 AUDIO_OPTION_IDS = ("audio_best", *MP3_OPTION_IDS)
 ALL_OPTION_IDS = (*VIDEO_OPTION_IDS, *AUDIO_OPTION_IDS)
 
+
+def _mp4_copy_spec(cap: int) -> str:
+    # Prefer H.264 + AAC so the stream-copy merge lands in .mp4 (QuickTime /
+    # NLE friendly); fall back to any codec rather than failing the download.
+    return (
+        f"bv*[vcodec^=avc1][height<={cap}]+ba[ext=m4a]/"
+        f"bv*[vcodec^=avc1][height<={cap}]+ba/"
+        f"b[vcodec^=avc1][height<={cap}]/"
+        f"bv*[height<={cap}]+ba/b[height<={cap}]/bv*+ba/b"
+    )
+
+
+def _convert_spec(cap: int) -> str:
+    # Above 1080p YouTube only has VP9/AV1. Prefer VP9: same quality class,
+    # much faster to decode during the H.264 transcode than AV1.
+    return (
+        f"bv*[vcodec^=vp09][height<={cap}]+ba/"
+        f"bv*[height<={cap}]+ba/b[height<={cap}]/bv*+ba/b"
+    )
+
+
 _FORMAT_SPECS = {
     "original": "bv*+ba/b",
-    "1080p": "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b",
-    "720p": "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b",
+    "2160p_mp4": _convert_spec(2160),
+    "1440p_mp4": _convert_spec(1440),
+    "1080p": _mp4_copy_spec(1080),
+    "720p": _mp4_copy_spec(720),
 }
+
+_MP4_COPY_IDS = {"1080p", "720p"}
+_MP4_CONVERT_IDS = {"2160p_mp4", "1440p_mp4"}
+
+# High-quality H.264 for the >1080p MP4 tiers: CRF 18 is visually lossless
+# territory, veryfast keeps a 4K encode tolerable on a small server, and
+# yuv420p (8-bit 4:2:0) is what QuickTime/editors require. Audio becomes AAC.
+# yt-dlp itself appends -movflags +faststart to postprocessor output args.
+_CONVERT_FFMPEG_ARGS = [
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+    "-pix_fmt", "yuv420p",
+    "-c:a", "aac", "-b:a", "192k",
+]
 
 # Some SoundCloud tracks expose direct progressive HTTP media in addition to
 # HLS. Prefer the direct file so downloads run at network speed instead of
@@ -216,9 +255,18 @@ def build_ydl_opts(
     # cookiefile is injected per-run from a private copy — see _cookies_copy().
 
     if option_id in _FORMAT_SPECS:
-        # Never re-encode: yt-dlp picks streams, ffmpeg merges with stream copy
-        # into whatever container fits (mp4 / webm / mkv).
         opts["format"] = _FORMAT_SPECS[option_id]
+        if option_id in _MP4_COPY_IDS:
+            # Stream-copy merge; lands in .mp4 whenever the picked codecs
+            # allow it (H.264 + AAC nearly always), .mkv as the safe fallback.
+            opts["merge_output_format"] = "mp4/mkv"
+        elif option_id in _MP4_CONVERT_IDS:
+            opts["postprocessors"] = [
+                {"key": "FFmpegVideoConvertor", "preferedformat": "mp4"},
+            ]
+            opts["postprocessor_args"] = {"videoconvertor": _CONVERT_FFMPEG_ARGS}
+        # "original" stays a stream-copy merge into whatever container fits
+        # (mp4 / webm / mkv) — bit-exact source streams.
     elif option_id in AUDIO_OPTION_IDS:
         opts["format"] = (
             _SOUNDCLOUD_AUDIO_FORMAT if platform == "soundcloud" else "bestaudio/b"
@@ -340,16 +388,35 @@ def _extract(url: str) -> dict:
     return info
 
 
-def _pick_video(formats: list[dict], cap: int | None = None) -> dict | None:
-    """Best video format (yt-dlp lists formats worst-to-best) under a height cap."""
-    for f in reversed(formats):
-        if f.get("vcodec") in (None, "none") or f.get("ext") == "mhtml":
-            continue
-        height = f.get("height")
-        if cap is not None and (not height or height > cap):
-            continue
-        return f
-    return None
+def _is_h264(f: dict) -> bool:
+    return (f.get("vcodec") or "").lower().startswith(("avc", "h264"))
+
+
+def _pick_video(
+    formats: list[dict], cap: int | None = None, prefer_avc: bool = False
+) -> dict | None:
+    """Best video format (yt-dlp lists formats worst-to-best) under a height cap.
+
+    With prefer_avc, the best H.264 format under the cap wins even when a
+    VP9/AV1 format is ranked higher — mirroring the _mp4_copy_spec selector —
+    falling back to any codec when no H.264 exists."""
+    def pick(require_avc: bool) -> dict | None:
+        for f in reversed(formats):
+            if f.get("vcodec") in (None, "none") or f.get("ext") == "mhtml":
+                continue
+            if require_avc and not _is_h264(f):
+                continue
+            height = f.get("height")
+            if cap is not None and (not height or height > cap):
+                continue
+            return f
+        return None
+
+    if prefer_avc:
+        found = pick(True)
+        if found is not None:
+            return found
+    return pick(False)
 
 
 def _is_audio_only(f: dict) -> bool:
@@ -430,6 +497,21 @@ def _pair_size(video_fmt: dict, best_audio: dict | None) -> int | None:
     return total
 
 
+def _merged_ext(video_fmt: dict, best_audio: dict | None) -> str | None:
+    """Container the download will actually land in (post yt-dlp merge)."""
+    if video_fmt.get("acodec") not in (None, "none") or not best_audio:
+        return video_fmt.get("ext")
+    try:
+        return get_compatible_ext(
+            vcodecs=[video_fmt.get("vcodec")],
+            acodecs=[best_audio.get("acodec")],
+            vexts=[video_fmt.get("ext")],
+            aexts=[best_audio.get("ext")],
+        )
+    except Exception:
+        return video_fmt.get("ext")
+
+
 def _video_options(formats: list[dict], best_audio: dict | None):
     original = _pick_video(formats)
     if original is None:
@@ -439,24 +521,51 @@ def _video_options(formats: list[dict], best_audio: dict | None):
     codec = _codec_name(original.get("vcodec"))
     quality = f"{res} ({codec})" if res and codec else (res or codec)
 
+    ext = _merged_ext(original, best_audio)
     options = [{
         "id": "original",
         "label": "Original",
-        "detail": " · ".join(p for p in (res, codec) if p) or None,
+        "detail": " · ".join(
+            p for p in (res, codec, f".{ext}" if ext else None) if p
+        ) or None,
         "height": height,
         "approx_size": _pair_size(original, best_audio),
     }]
-    for cap in (1080, 720):
-        if not height or height <= cap:
+
+    # >1080p MP4 tiers exist only as a transcode (no H.264 sources up there).
+    # Skipped when the source at that cap is already H.264 (e.g. Vimeo) —
+    # "Original" or a copy tier covers it without a re-encode.
+    for cap, name in ((2160, "4K"), (1440, "2K")):
+        if not height or height < cap:
             continue
-        f = _pick_video(formats, cap)
-        if f is None:
+        src = _pick_video(formats, cap)
+        if src is None or _is_h264(src):
             continue
         options.append({
+            "id": f"{cap}p_mp4",
+            "label": f"{name} MP4",
+            "detail": "H.264 · converted for editing (slower)",
+            "height": src.get("height") or cap,
+            "approx_size": None,
+        })
+
+    seen = {original.get("format_id")}
+    for cap in (1080, 720):
+        if not height or height < cap:
+            continue
+        f = _pick_video(formats, cap, prefer_avc=True)
+        if f is None or f.get("format_id") in seen:
+            continue
+        seen.add(f.get("format_id"))
+        pick_res = _res_label(f.get("height"), f.get("fps")) or f"{cap}p"
+        options.append({
             "id": f"{cap}p",
-            "label": f"{cap}p",
-            "detail": _codec_name(f.get("vcodec")),
-            "height": cap,
+            "label": f"{pick_res} MP4" if _is_h264(f) else pick_res,
+            "detail": (
+                "H.264 · no re-encode" if _is_h264(f)
+                else _codec_name(f.get("vcodec"))
+            ),
+            "height": f.get("height") or cap,
             "approx_size": _pair_size(f, best_audio),
         })
     return options, quality

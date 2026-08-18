@@ -40,7 +40,8 @@ This project exists **solely for research and educational purposes**: studying h
 
 ## Features
 
-- **Quality tiers without quality loss.** Original / 1080p / 720p are produced by *selecting source streams*, never by re-encoding. ffmpeg only merges and remuxes with stream copy — the video bits are exactly what the platform served. Smaller tiers stay small because yt-dlp prefers efficient codecs (VP9/AV1) at each resolution.
+- **Editing-friendly MP4 by default, lossless when you want it.** The 1080p / 720p tiers prefer the platform's **H.264 + AAC** streams and stream-copy them into `.mp4` — no re-encode, and the file opens in QuickTime, Premiere, Resolve, and Final Cut. "Original" stays a bit-exact copy of the best source streams (often VP9/AV1 in `.webm` — smallest and highest quality, but not editor-friendly).
+- **4K / 2K MP4 for editing.** YouTube serves nothing but VP9/AV1 above 1080p, so the labeled **4K MP4 / 2K MP4** options do a one-time high-quality H.264 transcode (CRF 18, 8-bit 4:2:0, AAC audio). They take noticeably longer than the copy tiers — that's the cost of editable UHD.
 - **Honest "best" audio.** "Original (best quality)" is a bit-exact copy of the source audio stream in its native container (Opus or M4A). The sources are already lossy, so we deliberately don't offer FLAC/WAV — it would triple the file size and add zero quality.
 - **MP3 tiers.** 320 / 256 / 192 / 128 kbps CBR via LAME, with metadata and cover art embedded — for players that need MP3.
 - **Fast SoundCloud downloads (including DRM tracks).** Progressive HTTP is preferred when available; otherwise segments are fetched concurrently. Label/Go tracks that only offer Widevine `ctr-encrypted-hls` are unlocked via a short license step + CENC decrypt (same class of pipeline as online SC converters), so a ~4-minute track typically finishes in a few seconds at full quality instead of failing or crawling at realtime.

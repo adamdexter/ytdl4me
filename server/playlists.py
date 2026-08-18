@@ -18,12 +18,17 @@ from .platforms import platform_kind
 
 MAX_PLAYLIST_TRACKS = max(1, int(os.environ.get("MAX_PLAYLIST_TRACKS") or 100))
 
-# YouTube / Vimeo-style quality chips for multi-item video sources.
+# YouTube / Vimeo-style quality chips for multi-item video sources. The MP4
+# tiers stream-copy H.264 when available (see downloader._mp4_copy_spec); the
+# 4K/2K transcode tiers are deliberately not offered for batches — re-encoding
+# a whole playlist would tie up the server for hours.
 _PLAYLIST_VIDEO_OPTIONS = [
     {"id": "original", "label": "Original", "detail": "best available · each item",
      "approx_size": None},
-    {"id": "1080p", "label": "1080p", "detail": "≤1080p · each item", "approx_size": None},
-    {"id": "720p", "label": "720p", "detail": "≤720p · each item", "approx_size": None},
+    {"id": "1080p", "label": "1080p MP4", "detail": "≤1080p · each item",
+     "approx_size": None},
+    {"id": "720p", "label": "720p MP4", "detail": "≤720p · each item",
+     "approx_size": None},
 ]
 
 
