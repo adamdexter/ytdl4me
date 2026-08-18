@@ -16,6 +16,7 @@ import re
 import shutil
 import tempfile
 import threading
+import zipfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -343,8 +344,14 @@ def probe(url: str, platform: str) -> dict:
         except Exception as exc:
             raise ProbeError(str(exc)) from exc
 
-    info = _extract(url)
+    info = _extract(url, platform)
+    if platform == "instagram" and info.get("_type") in ("playlist", "multi_video"):
+        return _carousel_payload(info, url)
     formats = info.get("formats") or ([info] if info.get("url") else [])
+    if platform == "instagram":
+        # Raw (unprocessed) extraction: formats aren't yt-dlp-sorted, so
+        # restore the worst-to-best order the pickers below rely on.
+        formats = _sort_raw_formats(formats)
 
     if platform in ("youtube", "vimeo", "instagram", "tiktok"):
         kind = "video"
@@ -363,7 +370,7 @@ def probe(url: str, platform: str) -> dict:
         "title": info.get("title"),
         "uploader": info.get("uploader") or info.get("channel") or info.get("artist"),
         "duration": duration,
-        "thumbnail": info.get("thumbnail"),
+        "thumbnail": info.get("thumbnail") or _best_thumbnail(info),
     }
     if kind == "video":
         options, quality = _video_options(formats, best_audio, platform)
@@ -376,10 +383,14 @@ def probe(url: str, platform: str) -> dict:
     return payload
 
 
-def _extract(url: str) -> dict:
+def _extract(url: str, platform: str | None = None) -> dict:
     opts = _probe_opts()
     is_search = url.startswith("ytsearch")
-    if not is_search:
+    # Instagram: skip processing so a mixed video+image carousel doesn't abort
+    # on the first image entry (processing raises "No video formats found").
+    # The raw ie_result carries everything the probe needs.
+    raw = platform == "instagram"
+    if not is_search and not raw:
         # Keep playlist probes cheap: flat entries, capped, so the playlist
         # check below never crawls individual videos.
         opts["extract_flat"] = "in_playlist"
@@ -389,7 +400,7 @@ def _extract(url: str) -> dict:
             if cookies:
                 opts["cookiefile"] = cookies
             with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=False)
+                info = ydl.extract_info(url, download=False, process=not raw)
     except yt_dlp.utils.DownloadError as exc:
         raise ProbeError(friendly_error(exc)) from exc
     if not info:
@@ -400,12 +411,68 @@ def _extract(url: str) -> dict:
             if not entries or not entries[0]:
                 raise ProbeError("No YouTube match was found for that track.")
             return entries[0]
+        if platform == "instagram":
+            return info  # carousel post — probe() builds a payload for it
         raise PlaylistError()
     return info
 
 
 def _is_h264(f: dict) -> bool:
     return (f.get("vcodec") or "").lower().startswith(("avc", "h264"))
+
+
+def _sort_raw_formats(formats: list[dict]) -> list[dict]:
+    """Worst-to-best by pixel count then bitrate (labels only — downloads go
+    through yt-dlp's own format selection, which sorts properly)."""
+    return sorted(formats, key=lambda f: (
+        (f.get("height") or 0) * (f.get("width") or 0),
+        f.get("tbr") or 0,
+    ))
+
+
+def _best_thumbnail(info: dict) -> str | None:
+    """Unprocessed ie_results only carry a thumbnails list (worst-to-best)."""
+    thumbs = info.get("thumbnails") or []
+    return (thumbs[-1] or {}).get("url") if thumbs else None
+
+
+def _carousel_videos(info: dict) -> list[dict]:
+    """Video entries of an Instagram carousel (image items have no formats)."""
+    return [e for e in (info.get("entries") or []) if e and e.get("formats")]
+
+
+def _carousel_payload(info: dict, url: str) -> dict:
+    """Probe payload for an Instagram carousel post: one card, one job that
+    downloads every video in the post (ZIP when there's more than one)."""
+    videos = _carousel_videos(info)
+    if not videos:
+        raise ProbeError(
+            "That Instagram post only contains images — nothing to download."
+        )
+    n = len(videos)
+    noun = f"{n} video{'s' if n != 1 else ''}"
+    zip_note = " · ZIP" if n > 1 else ""
+    first = videos[0]
+    duration = sum(float(e.get("duration") or 0) for e in videos) or None
+    return {
+        "platform": "instagram",
+        "kind": "video",
+        "url": info.get("webpage_url") or url,
+        "title": info.get("title") or first.get("title"),
+        "uploader": info.get("channel") or info.get("uploader"),
+        "duration": duration,
+        "thumbnail": _best_thumbnail(first) or _best_thumbnail(info),
+        "original_quality": f"Carousel · {noun}",
+        "video_options": [
+            {"id": "original", "label": "Original",
+             "detail": f"{noun} · best available{zip_note}",
+             "height": None, "approx_size": None},
+            {"id": "h264", "label": "MP4 (H.264)",
+             "detail": f"{noun} · most compatible{zip_note}",
+             "height": None, "approx_size": None},
+        ],
+        "audio_options": _audio_options(None, None),
+    }
 
 
 def _pick_video(
@@ -520,19 +587,28 @@ def _pair_size(video_fmt: dict, best_audio: dict | None) -> int | None:
     return total
 
 
+def _fmt_ext(f: dict) -> str | None:
+    # Unprocessed formats (e.g. raw Instagram probes) may lack 'ext'.
+    ext = f.get("ext")
+    if ext:
+        return ext
+    tail = os.path.splitext(urlparse(f.get("url") or "").path)[1].lstrip(".").lower()
+    return tail or None
+
+
 def _merged_ext(video_fmt: dict, best_audio: dict | None) -> str | None:
     """Container the download will actually land in (post yt-dlp merge)."""
     if video_fmt.get("acodec") not in (None, "none") or not best_audio:
-        return video_fmt.get("ext")
+        return _fmt_ext(video_fmt)
     try:
         return get_compatible_ext(
             vcodecs=[video_fmt.get("vcodec")],
             acodecs=[best_audio.get("acodec")],
-            vexts=[video_fmt.get("ext")],
-            aexts=[best_audio.get("ext")],
+            vexts=[_fmt_ext(video_fmt)],
+            aexts=[_fmt_ext(best_audio)],
         )
     except Exception:
-        return video_fmt.get("ext")
+        return _fmt_ext(video_fmt)
 
 
 def _video_options(formats: list[dict], best_audio: dict | None, platform: str | None = None):
@@ -772,6 +848,8 @@ def run_download(
         option_id, job_dir, progress_hook, pp_hook, filename_stem, platform
     )
     store.update(job_id, status="downloading")
+    carousel = False
+    carousel_base = None
     try:
         with _cookies_copy() as cookies:
             if cookies:
@@ -782,23 +860,48 @@ def run_download(
                 info = ydl.extract_info(url, download=False, process=False)
                 if not info:
                     raise DownloadFailed("Couldn't read anything from that link.")
-                if info.get("_type") in ("playlist", "multi_video") and not url.startswith("ytsearch"):
+                is_list = info.get("_type") in ("playlist", "multi_video")
+                carousel = is_list and platform == "instagram"
+                if is_list and not carousel and not url.startswith("ytsearch"):
                     raise DownloadFailed(PLAYLIST_ERROR)
+                stem = None
                 if platform in ("instagram", "tiktok") and not filename_stem:
                     # handle - date - caption words - kind - permalink id
                     stem = _social_stem(info, url, platform)
-                    if stem:
-                        stem = sanitize_filename(stem).replace("%", "%%")
-                        # prepare_filename reads params['outtmpl'] at call time,
-                        # so swapping it before processing is safe.
-                        ydl.params["outtmpl"]["default"] = os.path.join(
-                            job_dir, f"{stem}.%(ext)s"
+                if carousel:
+                    # One job downloads every video in the post; image items
+                    # must be dropped up front or processing aborts on them.
+                    videos = _carousel_videos(info)
+                    if not videos:
+                        raise DownloadFailed(
+                            "That Instagram post only contains images — "
+                            "nothing to download."
                         )
+                    info["entries"] = videos
+                    carousel_base = sanitize_filename(
+                        filename_stem or stem or "instagram post"
+                    )[:180]
+                    escaped = carousel_base.replace("%", "%%")
+                    tmpl = (
+                        f"{escaped} - %(playlist_index)02d.%(ext)s"
+                        if len(videos) > 1 else f"{escaped}.%(ext)s"
+                    )
+                    ydl.params["outtmpl"]["default"] = os.path.join(job_dir, tmpl)
+                elif stem:
+                    stem = sanitize_filename(stem).replace("%", "%%")
+                    # prepare_filename reads params['outtmpl'] at call time,
+                    # so swapping it before processing is safe.
+                    ydl.params["outtmpl"]["default"] = os.path.join(
+                        job_dir, f"{stem}.%(ext)s"
+                    )
                 ydl.process_ie_result(info, download=True)
     except yt_dlp.utils.DownloadError as exc:
         raise DownloadFailed(friendly_error(exc)) from exc
 
-    final = _final_path(holder, job_dir)
+    if carousel:
+        final = _carousel_final(job_dir, carousel_base)
+    else:
+        final = _final_path(holder, job_dir)
     if final is None:
         raise DownloadFailed("Download finished but no output file was found.")
     if tags:
@@ -819,6 +922,23 @@ _TEMP_SUFFIXES = {
     ".part", ".ytdl", ".temp", ".tmp", ".frag",
     ".webp", ".jpg", ".jpeg", ".png", ".json",
 }
+
+
+def _carousel_final(job_dir: str, base: str | None) -> str | None:
+    """One file → serve it directly; several → bundle into a ZIP."""
+    files = sorted(
+        p for p in Path(job_dir).iterdir()
+        if p.is_file() and p.suffix.lower() not in _TEMP_SUFFIXES
+    )
+    if not files:
+        return None
+    if len(files) == 1:
+        return str(files[0].resolve())
+    zip_path = Path(job_dir) / f"{base or 'instagram post'}.zip"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for path in files:
+            zf.write(path, arcname=path.name)
+    return str(zip_path.resolve())
 
 
 def _final_path(holder: dict, job_dir: str) -> str | None:

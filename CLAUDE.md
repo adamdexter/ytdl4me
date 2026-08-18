@@ -183,6 +183,7 @@ ACCESS_KEY=dev COOKIES_FILE=/path/to/cookies.txt \
   - Vimeo (720p src → no lower tiers): `https://vimeo.com/76979871`
   - TikTok (Original H.265 + h264 option, social filename): `https://www.tiktok.com/@cookierun_dev/video/7039716639834656002`
   - Instagram reel (may need instagram.com cookies on datacenter IPs): `https://www.instagram.com/reel/Chunk8-jurw/`
+  - Instagram carousel (probe `Carousel · 3 videos`, download = ZIP of 3): `https://www.instagram.com/p/DIqghhpok2K/`
   - Batch paste: `POST /api/probe {"urls": [<2+ single-item links>]}` → `kind:"playlist"`
   - Spotify: `https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT`
   - Deezer album (playlist UI): `https://www.deezer.com/album/302127`

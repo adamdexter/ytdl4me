@@ -124,7 +124,14 @@ Use this when hopping agents so context is not trapped in a single chat session.
   splits on submit) → `POST /api/probe {urls}` → synthetic `kind:"playlist"` with **zero
   upfront network calls** (IG rate limits!). Mixed platforms allowed; download reuses the
   existing batch/ZIP pipeline.
-- Carousel IG posts (multi-video /p/) surface the playlist error — known limitation.
+- **Carousels:** an IG multi-item post probes as ONE video card (`Carousel · N videos`,
+  Original/H.264 options) and downloads as ONE job — every video in the post, ZIP when >1,
+  members named `<social stem> - NN.ext`. Mechanics: IG probes extract with
+  `process=False` (processing aborts on image entries: "No video formats found"), raw
+  formats get re-sorted worst-to-best for labels (`_sort_raw_formats`), image entries are
+  filtered via empty `formats` before `process_ie_result`, and the carousel-level info
+  carries all post metadata so `_social_stem` works unchanged. Image-only posts get a
+  clear 422.
 
 ### Build version surfacing
 
