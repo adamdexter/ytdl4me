@@ -885,6 +885,13 @@ ul {
   padding-top: var(--s-4);
 }
 
+.footer-version {
+  margin-top: var(--s-1);
+  font-size: 11px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
 /* -------------------------------------------------------------- keyframes */
 
 @keyframes spin {

@@ -789,8 +789,28 @@
 
   // ----------------------------------------------------------------- wire up
 
+  async function showVersion() {
+    // /api/health is ungated — plain fetch, no access-key machinery.
+    try {
+      const res = await fetch("/api/health");
+      if (!res.ok) return;
+      const h = await res.json();
+      const parts = [];
+      if (h.version) parts.push(`build ${h.version}`);
+      if (h.yt_dlp_version) parts.push(`yt-dlp ${h.yt_dlp_version}`);
+      const line = document.getElementById("app-version");
+      if (line && parts.length) {
+        line.textContent = parts.join(" · ");
+        line.hidden = false;
+      }
+    } catch {
+      /* cosmetic only */
+    }
+  }
+
   consumeKeyFromUrl();
   fetchForm.addEventListener("submit", onFetchSubmit);
   urlInput.addEventListener("input", updateBadge);
   updateBadge();
+  showVersion();
 })();

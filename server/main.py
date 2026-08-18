@@ -54,6 +54,34 @@ ALLOW_ANY_SITE = (os.environ.get("ALLOW_ANY_SITE") or "false").strip().lower() i
 RATE_LIMIT_PER_MINUTE = int(os.environ.get("RATE_LIMIT_PER_MINUTE") or 30)
 MAX_ACTIVE_JOBS = int(os.environ.get("MAX_ACTIVE_JOBS") or MAX_CONCURRENT_JOBS * 4)
 
+
+def _build_version() -> str:
+    """Short commit of the running build. Railway injects the sha for
+    GitHub-linked deploys; local checkouts read .git directly (no subprocess)."""
+    sha = os.environ.get("RAILWAY_GIT_COMMIT_SHA") or ""
+    if sha:
+        return sha[:7]
+    try:
+        head = (_ROOT / ".git" / "HEAD").read_text().strip()
+        if head.startswith("ref: "):
+            ref_name = head[5:]
+            ref = _ROOT / ".git" / ref_name
+            if ref.is_file():
+                return ref.read_text().strip()[:7]
+            packed = _ROOT / ".git" / "packed-refs"
+            if packed.is_file():
+                for line in packed.read_text().splitlines():
+                    if line.endswith(" " + ref_name):
+                        return line.split(" ", 1)[0][:7]
+        elif head:
+            return head[:7]
+    except OSError:
+        pass
+    return "dev"
+
+
+APP_VERSION = _build_version()
+
 _STATIC_DIR = _ROOT / "static"
 _PROBE_TIMEOUT = 45
 _PROBE_WORKERS = 4
@@ -162,6 +190,7 @@ class DownloadRequest(BaseModel):
 async def api_health():
     return {
         "status": "ok",
+        "version": APP_VERSION,
         "yt_dlp_version": YT_DLP_VERSION,
         "auth_required": bool(ACCESS_KEY),
         "cookies_configured": bool(downloader.COOKIES_FILE),

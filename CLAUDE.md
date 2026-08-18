@@ -197,7 +197,7 @@ Link once from the repo dir: `railway link -p abundant-laughter -e production -s
 
 | Task | Command |
 |---|---|
-| Health / which build is live | `curl -s $URL/api/health` (field presence signals new code) |
+| Health / which build is live | `curl -s $URL/api/health` — `version` is the live commit sha (short); footer on the page shows it too |
 | Set a var (auto-deploys) | `railway variables --service ytdl4me --environment production --set "K=V"` |
 | Set a secret without arg-leak | `… --set-from-stdin K` (pipe the value) |
 | Set var, defer deploy | add `--skip-deploys` |

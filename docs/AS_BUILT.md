@@ -105,6 +105,14 @@ Use this when hopping agents so context is not trapped in a single chat session.
 - "Original" unchanged: bit-exact best streams, whatever container fits; its detail now
   names the codec + container so picking `.webm` is informed.
 
+### Build version surfacing
+
+- `/api/health` reports `version`: `RAILWAY_GIT_COMMIT_SHA` (short) in prod, `.git/HEAD`
+  read directly for local runs, `"dev"` fallback (`_build_version` in `main.py`).
+- Frontend fetches ungated `/api/health` on load and renders
+  `build <sha> · yt-dlp <ver>` under the footer disclaimer (`#app-version`).
+- This is the canonical "which build is live" check for agents after a deploy.
+
 ### Repo hygiene
 
 - Public repo: no secrets; `.gitignore` covers `.env`, cookies, media artifacts, `.wvd`.
