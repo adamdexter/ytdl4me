@@ -33,7 +33,9 @@ vanilla-JS frontend (no build step). Deployed on Railway.
 - **Access = unlisted:** share `https://ytdl4me-production.up.railway.app/#key=<ACCESS_KEY>`.
   Anyone with that link is unlocked; the bare URL is gated. Retrieve `<ACCESS_KEY>` from
   Railway vars. **Never commit the share link or key.**
-- **Deploys** from GitHub `main` (repo `adamdexter/ytdl4me`). Container runs as **root**
+- **Deploys** from GitHub `main` (repo `adamdexter/ytdl4me`) — **a push to `main`
+  auto-deploys** (verified 2026-08-18); `railway redeploy` is only a manual re-trigger and
+  needs an authed CLI, which not every dev machine has. Container runs as **root**
   (needed for the writable `/state` volume).
 
 ## Architecture & request flow
@@ -207,9 +209,12 @@ Link once from the repo dir: `railway link -p abundant-laughter -e production -s
 | List vars (names/values) | `railway variables … --kv` |
 | Logs | `railway logs` |
 
-**Deploy a code change:** commit → `git push origin main` → `railway redeploy --from-source -y`
-→ poll `/api/health` until the change is observable. A full rebuild (Dockerfile/requirements
-change) takes ~1–3 min; config redeploys ~30s.
+**Deploy a code change:** commit → `git push origin main` → Railway auto-builds → poll
+`/api/health` until `version` equals the pushed short sha. A full rebuild
+(Dockerfile/requirements change) takes ~1–3 min; config redeploys ~30s.
+`railway redeploy --from-source -y` is only needed to re-trigger without a new commit
+(requires `railway login` + `railway link`, which may be absent on a given machine —
+var reads/writes need the CLI too).
 
 **Rollback:** `git revert <sha> && git push && railway redeploy --from-source -y`, or redeploy
 a prior deployment from the Railway dashboard.
