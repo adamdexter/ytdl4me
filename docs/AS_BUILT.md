@@ -151,14 +151,16 @@ Use this when hopping agents so context is not trapped in a single chat session.
 ## Request architecture (current)
 
 ```
-POST /api/probe {url}
+POST /api/probe {url | urls[]}
+  → urls[] (2+, batch paste) → pasted_list_payload (no network)
   → detect_platform
   → if looks_like_playlist → enumerate_playlist (playlists.py)
   → else if spotify | prefers_youtube_match → meta → SC match probe | YT probe
   → else downloader.probe / native module
+      (instagram: raw process=False; carousel → kind:"video" + "Carousel · N videos")
 
 POST /api/download {url, option_id, entries?, zip?, title?}
-  → single: Job + _run_job (cascade or native)
+  → single: Job + _run_job (cascade or native; IG carousel → all videos, ZIP if >1)
   → multi + zip: Job batch + _run_batch_job → tracks/NNN → .zip
   → multi + !zip + N>1: N jobs (job_ids[])
 
@@ -218,6 +220,11 @@ When adding a var: code + `README.md` + `.env.example` + `CLAUDE.md` list + this
 ## Related commits (recent, for archaeology)
 
 ```
+edacacc Download Instagram carousels: every video in the post, ZIPped
+e1d773b Add Instagram/TikTok support and batch paste for URL lists
+82682cf Correct Railway deploy docs: pushes to main auto-deploy; CLI optional
+1dff326 Show build version in /api/health and under the footer disclaimer
+aaa1f14 Make video tiers editor-friendly: H.264 MP4 copy plus 4K/2K MP4 transcode
 a088fe7 Add playlist/album support with track select and ZIP download
 4d03003 Show FLAC in Deezer probe when DEEZER_ARL is set
 3e352fe Tighten SoundCloud match scoring for Beatport-style titles

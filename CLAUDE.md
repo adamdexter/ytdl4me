@@ -77,7 +77,7 @@ Browser (static/*, vanilla JS)
 | File | Responsibility | Key symbols |
 |---|---|---|
 | `server/main.py` | FastAPI app, routes, auth middleware, rate limit, single + **batch** job orchestration, TTL cleanup, static mount, `X-Robots-Tag` | `_access_key_middleware`, `_rate_limited`, `_run_job`, `_run_batch_job`, `_cleanup_loop`, `api_*` |
-| `server/downloader.py` | yt-dlp option builders, `probe()`, `run_download()`, cookie resolution + **self-renewal**, `friendly_error()`; dispatches SoundCloud to `soundcloud.py` | `_resolve_cookies`, `_cookies_copy`, `build_ydl_opts`, `_video_options`, `_FORMAT_SPECS` |
+| `server/downloader.py` | yt-dlp option builders, `probe()`, `run_download()`, cookie resolution + **self-renewal**, `friendly_error()`; IG/TikTok social filenames + carousel ZIP; dispatches SoundCloud to `soundcloud.py` | `_resolve_cookies`, `_cookies_copy`, `build_ydl_opts`, `_video_options`, `_FORMAT_SPECS`, `_social_stem`, `_carousel_payload` |
 | `server/soundcloud.py` | SoundCloud API client: progressive / concurrent HLS / Widevine CENC DRM decrypt | `probe`, `run_download`, `_pick_stream`, `_decrypt_fragment`, `_widevine_content_key` |
 | `server/deezer.py` | Native Deezer Blowfish CDN (optional `DEEZER_ARL`) | `probe`, `run_download` |
 | `server/joox.py` | JOOX direct stream URLs | `probe`, `run_download` |
@@ -89,7 +89,7 @@ Browser (static/*, vanilla JS)
 | `server/audio_common.py` | Shared audio probe options, ffmpeg finalize, tagging | `finalize_audio`, `probe_payload` |
 | `server/jobs.py` | `Job` dataclass + thread-safe `JobStore` | `JobStore.update/get/prune` |
 | `server/platforms.py` | URL → platform detection + playlist-shape detection | `detect_platform`, `platform_kind`, `looks_like_playlist` |
-| `server/playlists.py` | Enumerate playlist/album/set track lists for probe UI | `enumerate_playlist`, `PlaylistError`, `MAX_PLAYLIST_TRACKS` |
+| `server/playlists.py` | Enumerate playlist/album/set track lists for probe UI; pasted-list batch payload | `enumerate_playlist`, `pasted_list_payload`, `PlaylistError`, `MAX_PLAYLIST_TRACKS` |
 | `server/spotify.py` | Spotify link → public metadata → match cascade (spotDL approach; no DRM) | `resolve_track`, `SpotifyError` |
 | `static/index.html` | Single page + inline SVG icons + `<dialog>` key modal + `noindex` meta | — |
 | `static/app.js` | IIFE: `api()`, badge, `renderProbe` / playlist picker, `JobPoller`, unlisted key | `consumeKeyFromUrl`, `renderPlaylistPicker`, `startPlaylistDownload` |
