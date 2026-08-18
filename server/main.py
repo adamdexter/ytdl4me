@@ -37,7 +37,9 @@ from .downloader import (
 )
 from .jobs import Job, JobStore
 from .platforms import detect_platform, looks_like_playlist, platform_kind
-from .playlists import PlaylistError, enumerate_playlist, max_tracks
+from .playlists import (
+    PlaylistError, enumerate_playlist, max_tracks, pasted_list_payload,
+)
 from .spotify import SpotifyError, resolve_track
 from .match_sources import download_soundcloud_match, find_soundcloud_match
 from .yt_match import MatchError, prefers_youtube_match, resolve_track as resolve_yt_match
@@ -89,8 +91,8 @@ _CLEANUP_INTERVAL = 300  # 5 min
 _SERVED_GRACE = 300  # delete job dir 5 min after first successful serve
 
 UNSUPPORTED_SITE_ERROR = (
-    "Only YouTube, Vimeo, SoundCloud, Spotify, Deezer, JOOX, TIDAL, "
-    "Apple Music, and Beatport links are supported."
+    "Only YouTube, Instagram, TikTok, Vimeo, SoundCloud, Spotify, Deezer, "
+    "JOOX, TIDAL, Apple Music, and Beatport links are supported."
 )
 INVALID_URL_ERROR = "That doesn't look like a valid link — paste a full http(s) URL."
 
@@ -173,7 +175,11 @@ async def _access_key_middleware(request: Request, call_next):
 # ---------------------------------------------------------------------------
 
 class ProbeRequest(BaseModel):
-    url: str
+    url: str | None = None
+    # Pasted list of single-item links (batch paste). 2+ URLs probe as a
+    # synthetic playlist without any network calls; a single URL falls through
+    # to the normal probe.
+    urls: list[str] | None = None
 
 
 class DownloadRequest(BaseModel):
@@ -266,7 +272,15 @@ async def _validate_url(url: str) -> str | JSONResponse:
 async def api_probe(request: Request, body: ProbeRequest):
     if _rate_limited(request):
         return _error(429, RATE_LIMIT_ERROR)
-    url = body.url.strip()
+    pasted = [u.strip() for u in (body.urls or []) if isinstance(u, str) and u.strip()]
+    if len(pasted) > 1:
+        try:
+            return pasted_list_payload(pasted)
+        except PlaylistError as exc:
+            return _error(422, str(exc))
+    url = (pasted[0] if pasted else (body.url or "")).strip()
+    if not url:
+        return _error(422, INVALID_URL_ERROR)
     platform = await _validate_url(url)
     if isinstance(platform, JSONResponse):
         return platform
@@ -397,13 +411,13 @@ async def api_download(request: Request, body: DownloadRequest):
                 422,
                 f"Too many tracks (max {max_tracks()}). Select fewer and try again.",
             )
-        # Validate each entry is same platform and public.
+        # Validate each entry individually. Entries may span platforms (pasted
+        # batches mix e.g. Instagram + TikTok); the batch runner re-detects the
+        # platform per entry, so no same-source requirement.
         for entry_url in entries:
             ep = detect_platform(entry_url)
             if ep is None:
                 return _error(422, f"Invalid track URL: {entry_url[:80]}")
-            if ep != platform:
-                return _error(422, "Selected tracks must match the playlist source.")
             if ep == "other":
                 if not ALLOW_ANY_SITE:
                     return _error(422, "A selected track URL isn't from a supported site.")

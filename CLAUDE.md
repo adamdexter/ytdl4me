@@ -8,8 +8,8 @@ ground truth**. Human-facing product docs: `README.md`. Original design intent: 
 (drifted). Feature history: [`docs/AS_BUILT.md`](docs/AS_BUILT.md). Verify recipes:
 [`.claude/skills/verify/SKILL.md`](.claude/skills/verify/SKILL.md).
 
-**What it is:** a self-hosted web app that downloads media from YouTube, Vimeo, SoundCloud,
-Spotify, Deezer, JOOX, TIDAL, Apple Music, and Beatport. Python FastAPI + yt-dlp (Python
+**What it is:** a self-hosted web app that downloads media from YouTube, Instagram, TikTok,
+Vimeo, SoundCloud, Spotify, Deezer, JOOX, TIDAL, Apple Music, and Beatport. Python FastAPI + yt-dlp (Python
 API, never the CLI) + custom audio clients + ffmpeg + Deno, one Docker container,
 vanilla-JS frontend (no build step). Deployed on Railway.
 
@@ -43,6 +43,7 @@ vanilla-JS frontend (no build step). Deployed on Railway.
 ```
 Browser (static/*, vanilla JS)
   → POST /api/probe
+       ├─ urls[] (2+, batch paste) → playlists.pasted_list_payload → kind:"playlist", no network
        ├─ looks_like_playlist? → playlists.enumerate_playlist → kind:"playlist" + entries[]
        ├─ spotify | prefers_youtube_match? → public meta → SC match probe | YT probe
        └─ else native module / yt-dlp probe → options JSON
@@ -180,6 +181,9 @@ ACCESS_KEY=dev COOKIES_FILE=/path/to/cookies.txt \
   - YouTube tiny (fast full download): `https://www.youtube.com/watch?v=jNQXAC9IVRw`
   - SoundCloud: `https://soundcloud.com/forss/flickermood`
   - Vimeo (720p src → no lower tiers): `https://vimeo.com/76979871`
+  - TikTok (Original H.265 + h264 option, social filename): `https://www.tiktok.com/@cookierun_dev/video/7039716639834656002`
+  - Instagram reel (may need instagram.com cookies on datacenter IPs): `https://www.instagram.com/reel/Chunk8-jurw/`
+  - Batch paste: `POST /api/probe {"urls": [<2+ single-item links>]}` → `kind:"playlist"`
   - Spotify: `https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT`
   - Deezer album (playlist UI): `https://www.deezer.com/album/302127`
   - YouTube playlist: `https://www.youtube.com/playlist?list=PLBCF2DAC6FFB574DE`
@@ -242,6 +246,10 @@ in headless/agent runs it fails on encrypted keys. Prefer the env-var/reseed app
   Spotify lists work best with `SPOTIFY_CLIENT_ID`/`SECRET`.
 - **Spotify title wrong / missing** → `spotify.py` scrapes public pages (oEmbed + embed
   `__NEXT_DATA__`); Spotify markup changes break it. Fix the fallbacks there.
+- **Instagram "blocking anonymous access"** → IG rate-limits/blocks datacenter IPs harder
+  than YouTube. Export instagram.com cookies into the same cookies.txt as YouTube's
+  (`COOKIES_B64` seed / state file — one Netscape file can hold both domains). TikTok
+  normally needs nothing.
 
 ## Extending
 

@@ -15,6 +15,8 @@ _APPLE_HOSTS = {
     "music.apple.com", "itunes.apple.com", "apple.com",
 }
 _BEATPORT_HOSTS = {"beatport.com", "pro.beatport.com", "stream.beatport.com"}
+_INSTAGRAM_HOSTS = {"instagram.com", "instagr.am"}
+_TIKTOK_HOSTS = {"tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}
 
 # Platforms that are always audio-only in this app.
 _AUDIO_PLATFORMS = {
@@ -61,6 +63,10 @@ def detect_platform(url: str) -> str | None:
         return "applemusic"
     if host in _BEATPORT_HOSTS or host.endswith(".beatport.com"):
         return "beatport"
+    if host in _INSTAGRAM_HOSTS or host.endswith(".instagram.com"):
+        return "instagram"
+    if host in _TIKTOK_HOSTS or host.endswith(".tiktok.com"):
+        return "tiktok"
     return "other"
 
 

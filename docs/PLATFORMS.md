@@ -28,6 +28,15 @@ Dispatch: `server/main.py` `_probe` / `_run_job` + `server/downloader.py`.
 | **Apple Music** | Match if no media-user-token | Native Widevine AAC if token; else Match | catalog JWT album/playlist | `APPLE_MEDIA_USER_TOKEN` |
 | **Beatport** | public scrape (+ jina CF fallback) | free sample only / Streaming OAuth / else Match | release/chart scrape | `BEATPORT_USERNAME`+`PASSWORD` or tokens |
 | **JOOX** | public songinfo | direct streams | not supported (clear error) | `JOOX_COOKIE` |
+| **Instagram** | yt-dlp | yt-dlp (Original + best-H.264 MP4; social filename stem) | — (batch paste instead) | instagram.com cookies in `COOKIES_*` when anonymous access is blocked |
+| **TikTok** | yt-dlp | yt-dlp (Original + best-H.264 MP4; social filename stem) | — (batch paste instead) | usually none |
+
+Instagram/TikTok downloads are named
+`handle - YYYY-MM-DD - first caption words - reel|post|story|video - permalink id.ext`
+(`downloader._social_stem`, computed from the download-time extraction — no extra probe).
+A **pasted list** of single-item links (any mix of platforms) probes as a synthetic
+playlist via `playlists.pasted_list_payload` — no network calls up front; per-item
+metadata resolves at download time.
 
 ## Match cascade (detail)
 

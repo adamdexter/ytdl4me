@@ -15,6 +15,13 @@ UI in `static/app.js` / `app.css`.
 
 Single-item links are unchanged (`kind: "audio"` | `"video"`).
 
+**Batch paste:** pasting 2+ URLs into the input (newline / comma / space separated — the
+frontend reads the raw clipboard and auto-submits) probes as `POST /api/probe {urls: [...]}`
+→ `playlists.pasted_list_payload` returns the same `kind:"playlist"` shape with no network
+calls, so the normal picker/ZIP flow applies. Entries may mix platforms; the batch runner
+detects each entry's platform individually. Video options for pasted lists are
+`original` + `h264` (per-item resolution ladders make no sense without probing).
+
 ## Detection
 
 `platforms.looks_like_playlist(url, platform)` — URL shape only (cheap).

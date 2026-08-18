@@ -3,7 +3,7 @@
 Living record of what the system **actually does**, in roughly chronological feature order.
 Use this when hopping agents so context is not trapped in a single chat session.
 
-**Last major update:** editing-friendly MP4 video tiers (H.264 stream-copy 1080p/720p, 4K/2K MP4 transcode).  
+**Last major update:** Instagram/TikTok support + batch paste (mixed-platform URL lists → picker/ZIP).  
 **Live deploy:** https://ytdl4me-production.up.railway.app · Railway project `abundant-laughter`, service `ytdl4me`, volume `/state`.
 
 ---
@@ -104,6 +104,27 @@ Use this when hopping agents so context is not trapped in a single chat session.
   that height is already H.264 (e.g. Vimeo) and not offered for playlist batches.
 - "Original" unchanged: bit-exact best streams, whatever container fits; its detail now
   names the codec + container so picking `.webm` is informed.
+
+### Instagram + TikTok + batch paste
+
+- **Files:** `platforms.py` (hosts), `downloader.py` (`_social_stem`, `h264` option,
+  short-side `_res_label`, IG cookie hint in `friendly_error`), `playlists.py`
+  (`pasted_list_payload`), `main.py` (`ProbeRequest.urls`, per-entry platform validation),
+  `app.js` (icons, hosts, `extractUrls`, paste handler, batch badge), `index.html` (icons).
+- IG/TT probe offers **Original + MP4 (H.264)** only — height-capped tiers punish portrait
+  video (a 1080×1920 reel is colloquially "1080p" → labels use the SHORT side everywhere).
+- **Gotcha:** TikTok reports `vcodec: "h264"/"h265"`, not fourcc — format filters must use
+  `[vcodec~='^(avc|h264)']`, and IG's username lives in `channel` (`uploader_id` is a
+  numeric pk).
+- Social filenames: `handle - YYYY-MM-DD - caption words - reel|post|story|video - id.ext`,
+  built in `run_download` from the two-phase pre-extraction (mutating
+  `ydl.params["outtmpl"]` before `process_ie_result` — prepare_filename reads it at call
+  time). Works for batch entries too (no per-item stem passed).
+- **Batch paste:** 2+ URLs in the input (frontend reads raw clipboard on paste; also
+  splits on submit) → `POST /api/probe {urls}` → synthetic `kind:"playlist"` with **zero
+  upfront network calls** (IG rate limits!). Mixed platforms allowed; download reuses the
+  existing batch/ZIP pipeline.
+- Carousel IG posts (multi-video /p/) surface the playlist error — known limitation.
 
 ### Build version surfacing
 

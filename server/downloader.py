@@ -17,7 +17,9 @@ import shutil
 import tempfile
 import threading
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yt_dlp
 from yt_dlp.utils import determine_protocol, get_compatible_ext, sanitize_filename
@@ -107,19 +109,24 @@ PLAYLIST_ERROR = (
     "Playlists aren't supported yet — paste a link to a single video/track."
 )
 
-VIDEO_OPTION_IDS = ("original", "2160p_mp4", "1440p_mp4", "1080p", "720p")
+VIDEO_OPTION_IDS = ("original", "h264", "2160p_mp4", "1440p_mp4", "1080p", "720p")
 MP3_OPTION_IDS = ("mp3_320", "mp3_256", "mp3_192", "mp3_128")
 AUDIO_OPTION_IDS = ("audio_best", *MP3_OPTION_IDS)
 ALL_OPTION_IDS = (*VIDEO_OPTION_IDS, *AUDIO_OPTION_IDS)
+
+
+# Matches both fourcc ("avc1.640028") and plain ("h264") codec strings —
+# TikTok/Instagram report the latter, YouTube the former.
+_H264_FILTER = "[vcodec~='^(avc|h264)']"
 
 
 def _mp4_copy_spec(cap: int) -> str:
     # Prefer H.264 + AAC so the stream-copy merge lands in .mp4 (QuickTime /
     # NLE friendly); fall back to any codec rather than failing the download.
     return (
-        f"bv*[vcodec^=avc1][height<={cap}]+ba[ext=m4a]/"
-        f"bv*[vcodec^=avc1][height<={cap}]+ba/"
-        f"b[vcodec^=avc1][height<={cap}]/"
+        f"bv*{_H264_FILTER}[height<={cap}]+ba[ext=m4a]/"
+        f"bv*{_H264_FILTER}[height<={cap}]+ba/"
+        f"b{_H264_FILTER}[height<={cap}]/"
         f"bv*[height<={cap}]+ba/b[height<={cap}]/bv*+ba/b"
     )
 
@@ -135,13 +142,22 @@ def _convert_spec(cap: int) -> str:
 
 _FORMAT_SPECS = {
     "original": "bv*+ba/b",
+    # Best H.264 at any resolution — the right "editable MP4" choice for
+    # social video (Instagram/TikTok), where a height cap would punish
+    # portrait 1080x1920 sources.
+    "h264": (
+        f"bv*{_H264_FILTER}+ba[ext=m4a]/"
+        f"bv*{_H264_FILTER}+ba/"
+        f"b{_H264_FILTER}/"
+        "bv*+ba/b"
+    ),
     "2160p_mp4": _convert_spec(2160),
     "1440p_mp4": _convert_spec(1440),
     "1080p": _mp4_copy_spec(1080),
     "720p": _mp4_copy_spec(720),
 }
 
-_MP4_COPY_IDS = {"1080p", "720p"}
+_MP4_COPY_IDS = {"h264", "1080p", "720p"}
 _MP4_CONVERT_IDS = {"2160p_mp4", "1440p_mp4"}
 
 # High-quality H.264 for the >1080p MP4 tiers: CRF 18 is visually lossless
@@ -330,7 +346,7 @@ def probe(url: str, platform: str) -> dict:
     info = _extract(url)
     formats = info.get("formats") or ([info] if info.get("url") else [])
 
-    if platform in ("youtube", "vimeo"):
+    if platform in ("youtube", "vimeo", "instagram", "tiktok"):
         kind = "video"
     elif platform in ("soundcloud", "spotify"):
         kind = "audio"
@@ -350,7 +366,7 @@ def probe(url: str, platform: str) -> dict:
         "thumbnail": info.get("thumbnail"),
     }
     if kind == "video":
-        options, quality = _video_options(formats, best_audio)
+        options, quality = _video_options(formats, best_audio, platform)
         payload["video_options"] = options
         payload["original_quality"] = quality
     else:
@@ -472,10 +488,17 @@ def _codec_name(codec: str | None) -> str | None:
     return codec.split(".")[0].upper()
 
 
-def _res_label(height, fps) -> str | None:
-    if not height:
+def _res_label(f: dict | None) -> str | None:
+    """Colloquial resolution: the SHORT side (a portrait 1080x1920 reel is
+    "1080p", same as landscape 1920x1080), fps suffix above 30."""
+    if not f:
         return None
-    label = f"{height}p"
+    height, width = f.get("height"), f.get("width")
+    side = min(height, width) if height and width else height
+    if not side:
+        return None
+    label = f"{side}p"
+    fps = f.get("fps")
     if fps and fps > 30:
         label += str(int(round(fps)))
     return label
@@ -512,12 +535,12 @@ def _merged_ext(video_fmt: dict, best_audio: dict | None) -> str | None:
         return video_fmt.get("ext")
 
 
-def _video_options(formats: list[dict], best_audio: dict | None):
+def _video_options(formats: list[dict], best_audio: dict | None, platform: str | None = None):
     original = _pick_video(formats)
     if original is None:
         return [], None
     height = original.get("height")
-    res = _res_label(height, original.get("fps"))
+    res = _res_label(original)
     codec = _codec_name(original.get("vcodec"))
     quality = f"{res} ({codec})" if res and codec else (res or codec)
 
@@ -531,6 +554,22 @@ def _video_options(formats: list[dict], best_audio: dict | None):
         "height": height,
         "approx_size": _pair_size(original, best_audio),
     }]
+
+    # Social video: portrait sources make height-capped tiers meaningless, and
+    # the source is H.264/H.265 mp4 already — offer Original plus best-H.264.
+    if platform in ("instagram", "tiktok"):
+        f = _pick_video(formats, prefer_avc=True)
+        if f is not None and _is_h264(f) and f.get("format_id") != original.get("format_id"):
+            options.append({
+                "id": "h264",
+                "label": "MP4 (H.264)",
+                "detail": " · ".join(
+                    p for p in (_res_label(f), "H.264 · no re-encode") if p
+                ),
+                "height": f.get("height"),
+                "approx_size": _pair_size(f, best_audio),
+            })
+        return options, quality
 
     # >1080p MP4 tiers exist only as a transcode (no H.264 sources up there).
     # Skipped when the source at that cap is already H.264 (e.g. Vimeo) —
@@ -557,7 +596,7 @@ def _video_options(formats: list[dict], best_audio: dict | None):
         if f is None or f.get("format_id") in seen:
             continue
         seen.add(f.get("format_id"))
-        pick_res = _res_label(f.get("height"), f.get("fps")) or f"{cap}p"
+        pick_res = _res_label(f) or f"{cap}p"
         options.append({
             "id": f"{cap}p",
             "label": f"{pick_res} MP4" if _is_h264(f) else pick_res,
@@ -602,6 +641,70 @@ def _audio_options(best_audio: dict | None, duration: float | None) -> list[dict
 # ---------------------------------------------------------------------------
 # Download
 # ---------------------------------------------------------------------------
+
+# URL path segment → human kind for social filenames.
+_SOCIAL_KIND_SEGMENTS = (
+    ("/reels/", "reel"), ("/reel/", "reel"), ("/stories/", "story"),
+    ("/tv/", "igtv"), ("/p/", "post"), ("/video/", "video"), ("/photo/", "photo"),
+)
+_SOCIAL_CODE_RE = re.compile(r"/(?:reels?|p|tv|video|photo)/([A-Za-z0-9_-]+)")
+
+
+def _social_stem(info: dict, url: str, platform: str) -> str | None:
+    """Filename stem for Instagram/TikTok downloads:
+    handle - YYYY-MM-DD - first caption words - reel|post|story|video - permalink id
+    Empty segments are dropped; sanitize_filename runs on the result."""
+    if platform == "tiktok":
+        handle = info.get("uploader") or info.get("uploader_id")
+    else:
+        # Instagram: channel = username (primary owner on collab posts);
+        # uploader_id is a numeric pk, uploader the display name.
+        uid = info.get("uploader_id")
+        handle = (
+            info.get("channel")
+            or (uid if uid and not str(uid).isdigit() else None)
+            or info.get("uploader")
+        )
+    handle = (handle or "").strip().lstrip("@") or None
+
+    date = info.get("upload_date")  # YYYYMMDD (may be absent pre-processing)
+    if date and len(str(date)) == 8:
+        date = f"{date[:4]}-{date[4:6]}-{date[6:]}"
+    elif info.get("timestamp"):
+        try:
+            date = datetime.fromtimestamp(
+                float(info["timestamp"]), tz=timezone.utc
+            ).strftime("%Y-%m-%d")
+        except (OverflowError, OSError, ValueError):
+            date = None
+    else:
+        date = None
+
+    caption = " ".join((info.get("description") or info.get("title") or "").split())
+    words: list[str] = []
+    length = 0
+    for w in caption.split():
+        add = len(w) + (1 if words else 0)
+        if words and (length + add > 44 or len(words) >= 6):
+            break
+        words.append(w)
+        length += add
+    snippet = " ".join(words) or None
+
+    path = (urlparse(info.get("webpage_url") or url).path or "").lower()
+    kind = next((k for seg, k in _SOCIAL_KIND_SEGMENTS if seg in path), None)
+    if kind is None:
+        kind = "video" if platform == "tiktok" else "post"
+
+    code = None
+    m = _SOCIAL_CODE_RE.search(urlparse(info.get("webpage_url") or url).path or "")
+    if m:
+        code = m.group(1)
+    code = code or (str(info["id"]) if info.get("id") else None)
+
+    parts = [p for p in (handle, date, snippet, kind, code) if p]
+    return " - ".join(parts) if parts else None
+
 
 def run_download(
     store: JobStore,
@@ -681,6 +784,16 @@ def run_download(
                     raise DownloadFailed("Couldn't read anything from that link.")
                 if info.get("_type") in ("playlist", "multi_video") and not url.startswith("ytsearch"):
                     raise DownloadFailed(PLAYLIST_ERROR)
+                if platform in ("instagram", "tiktok") and not filename_stem:
+                    # handle - date - caption words - kind - permalink id
+                    stem = _social_stem(info, url, platform)
+                    if stem:
+                        stem = sanitize_filename(stem).replace("%", "%%")
+                        # prepare_filename reads params['outtmpl'] at call time,
+                        # so swapping it before processing is safe.
+                        ydl.params["outtmpl"]["default"] = os.path.join(
+                            job_dir, f"{stem}.%(ext)s"
+                        )
                 ydl.process_ie_result(info, download=True)
     except yt_dlp.utils.DownloadError as exc:
         raise DownloadFailed(friendly_error(exc)) from exc
@@ -751,6 +864,12 @@ def friendly_error(exc: BaseException) -> str:
         return ("This track uses platform DRM that couldn't be unlocked on this "
                 "server. For SoundCloud, ensure a Widevine device is available "
                 "(WIDEVINE_DEVICE_FILE / WIDEVINE_DEVICE_B64) and try again.")
+    if "rate-limit reached or login required" in lower or (
+        "instagram" in lower and ("login" in lower or "logged" in lower)
+    ):
+        return ("Instagram is blocking anonymous access from this server. Add "
+                "instagram.com cookies to the configured cookies.txt (same file "
+                "as the YouTube cookies) and try again.")
     if "private" in lower:
         return "That video is private."
     if "members-only" in lower or "join this channel" in lower:

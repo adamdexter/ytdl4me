@@ -68,6 +68,8 @@
     tidal: { name: "TIDAL", icon: "icon-tidal" },
     applemusic: { name: "Apple Music", icon: "icon-applemusic" },
     beatport: { name: "Beatport", icon: "icon-beatport" },
+    instagram: { name: "Instagram", icon: "icon-instagram" },
+    tiktok: { name: "TikTok", icon: "icon-tiktok" },
   };
 
   const PLATFORM_HOSTS = {
@@ -94,6 +96,11 @@
     "beatport.com": "beatport",
     "pro.beatport.com": "beatport",
     "stream.beatport.com": "beatport",
+    "instagram.com": "instagram",
+    "instagr.am": "instagram",
+    "tiktok.com": "tiktok",
+    "vm.tiktok.com": "tiktok",
+    "vt.tiktok.com": "tiktok",
   };
 
   function detectPlatform(raw) {
@@ -116,7 +123,21 @@
     if (host.endsWith(".soundcloud.com")) return "soundcloud";
     if (host.endsWith(".beatport.com") || host === "beatport.com") return "beatport";
     if (host.includes("music.apple.") || host === "apple.com") return "applemusic";
+    if (host.endsWith(".instagram.com")) return "instagram";
+    if (host.endsWith(".tiktok.com")) return "tiktok";
     return "other";
+  }
+
+  // Pull every http(s) URL out of pasted text: newline / comma / space
+  // separated, or even mashed together with no separator at all.
+  function extractUrls(text) {
+    return String(text || "")
+      .split(/(?=https?:\/\/)/)
+      .map((chunk) => {
+        const m = chunk.match(/https?:\/\/[^\s,;"'<>]+/);
+        return m ? m[0].replace(/[).,;]+$/, "") : null;
+      })
+      .filter(Boolean);
   }
 
   // ------------------------------------------------- access key + 401 modal
@@ -339,10 +360,12 @@
       urlInput.focus();
       return;
     }
+    const urls = extractUrls(url);
     setFetching(true);
     fetchError.hidden = true;
     try {
-      const probe = await api("/api/probe", { method: "POST", body: { url } });
+      const body = urls.length > 1 ? { urls } : { url };
+      const probe = await api("/api/probe", { method: "POST", body });
       renderProbe(probe);
     } catch (err) {
       probeSection.hidden = true;
@@ -380,7 +403,9 @@
   }
 
   function updateBadge() {
-    const platform = detectPlatform(urlInput.value);
+    const urls = extractUrls(urlInput.value);
+    const isBatch = urls.length > 1;
+    const platform = detectPlatform(isBatch ? urls[0] : urlInput.value);
     const meta = platform && PLATFORMS[platform];
     platformBadge.replaceChildren();
     if (!meta) {
@@ -390,7 +415,9 @@
     platformBadge.hidden = false;
     platformBadge.appendChild(icon(meta.icon));
     platformBadge.appendChild(el("span", "badge-name", meta.name));
-    if (looksLikePlaylist(urlInput.value, platform)) {
+    if (isBatch) {
+      platformBadge.appendChild(el("span", "badge-extra", `batch · ${urls.length}`));
+    } else if (looksLikePlaylist(urlInput.value, platform)) {
       platformBadge.appendChild(el("span", "badge-extra", "playlist"));
     }
   }
@@ -811,6 +838,22 @@
   consumeKeyFromUrl();
   fetchForm.addEventListener("submit", onFetchSubmit);
   urlInput.addEventListener("input", updateBadge);
+  // Batch paste: a single-line input mangles multi-line pastes, so read the
+  // raw clipboard text; 2+ links auto-probe as a batch (playlist-style picker).
+  urlInput.addEventListener("paste", (event) => {
+    let text = "";
+    try {
+      text = (event.clipboardData || window.clipboardData).getData("text") || "";
+    } catch {
+      return;
+    }
+    const urls = extractUrls(text);
+    if (urls.length < 2) return;
+    event.preventDefault();
+    urlInput.value = urls.join(" ");
+    updateBadge();
+    fetchForm.requestSubmit();
+  });
   updateBadge();
   showVersion();
 })();

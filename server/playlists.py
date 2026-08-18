@@ -14,7 +14,7 @@ import urllib.request
 from typing import Any
 
 from . import audio_common as ac
-from .platforms import platform_kind
+from .platforms import detect_platform, looks_like_playlist, platform_kind
 
 MAX_PLAYLIST_TRACKS = max(1, int(os.environ.get("MAX_PLAYLIST_TRACKS") or 100))
 
@@ -38,6 +38,87 @@ class PlaylistError(Exception):
 
 def max_tracks() -> int:
     return MAX_PLAYLIST_TRACKS
+
+
+# Pasted batches skip per-item probing, so offer the two choices that make
+# sense for every video platform: bit-exact source, or best H.264 MP4.
+_PASTED_VIDEO_OPTIONS = [
+    {"id": "original", "label": "Original", "detail": "best available · each item",
+     "approx_size": None},
+    {"id": "h264", "label": "MP4 (H.264)", "detail": "most compatible · each item",
+     "approx_size": None},
+]
+
+_PLATFORM_LABELS = {
+    "youtube": "YouTube", "vimeo": "Vimeo", "soundcloud": "SoundCloud",
+    "spotify": "Spotify", "deezer": "Deezer", "joox": "JOOX", "tidal": "TIDAL",
+    "applemusic": "Apple Music", "beatport": "Beatport",
+    "instagram": "Instagram", "tiktok": "TikTok",
+}
+
+
+def pasted_list_payload(urls: list[str]) -> dict:
+    """Probe-shaped playlist payload for a pasted list of single-item links.
+
+    No network calls — entries are labeled from the URL path and each item's
+    real metadata (and Instagram/TikTok filename) resolves at download time,
+    so a 50-link paste doesn't fire 50 rate-limited probes up front."""
+    entries: list[dict] = []
+    seen: set[str] = set()
+    kinds: set[str] = set()
+    dropped = 0
+    for raw in urls:
+        u = (raw or "").strip().strip(".,;")
+        if not u or u in seen:
+            continue
+        seen.add(u)
+        p = detect_platform(u)
+        if p in (None, "other") or looks_like_playlist(u, p):
+            dropped += 1  # unsupported site, or a nested playlist link
+            continue
+        kinds.add(platform_kind(p))
+        tail = (urllib.parse.urlparse(u).path or "/").strip("/") or u
+        entries.append({
+            "url": u,
+            "title": tail if len(tail) <= 70 else tail[:67] + "…",
+            "uploader": _PLATFORM_LABELS.get(p, p),
+        })
+    if not entries:
+        raise PlaylistError(
+            "No supported links found in that list — paste one URL per line "
+            "(YouTube, Instagram, TikTok, SoundCloud, …)."
+        )
+    truncated = False
+    if len(entries) > MAX_PLAYLIST_TRACKS:
+        entries = entries[:MAX_PLAYLIST_TRACKS]
+        truncated = True
+    for i, e in enumerate(entries, 1):
+        e["index"] = i
+        e.setdefault("duration", None)
+        e.setdefault("thumbnail", None)
+
+    quality = f"Batch · {len(entries)} link{'s' if len(entries) != 1 else ''}"
+    if dropped:
+        quality += f" · {dropped} skipped"
+    return {
+        "platform": detect_platform(entries[0]["url"]),
+        "kind": "playlist",
+        "url": entries[0]["url"],
+        "title": f"{len(entries)} pasted links",
+        "uploader": None,
+        "thumbnail": None,
+        "duration": None,
+        "track_count": len(entries),
+        "truncated": truncated,
+        "entries": entries,
+        "original_quality": quality,
+        "video_options": list(_PASTED_VIDEO_OPTIONS) if "video" in kinds else [],
+        "audio_options": ac.audio_options(
+            None,
+            "per item · best available",
+            best_size=None,
+        ),
+    }
 
 
 def enumerate_playlist(url: str, platform: str) -> dict:
